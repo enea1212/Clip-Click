@@ -18,6 +18,14 @@ Pentru instalarea yt-dlp:
 python -m pip install --user yt-dlp
 ```
 
+Pentru transcrierea locala cu Whisper (timpi exacti pe cuvant, videouri fara subtitrari, taierea pauzelor):
+
+```powershell
+python -m pip install --user faster-whisper
+```
+
+La prima folosire se descarca modelul `small` (~500 MB). Ruleaza pe procesor: aproximativ 0,45 secunde de procesare pentru fiecare secunda de audio.
+
 Clipurile rezultate se salveaza in `data/<id>/short-1.mp4` etc. Directoarele din `data` pot fi sterse dupa ce descarci clipurile.
 
 ## Limite curente

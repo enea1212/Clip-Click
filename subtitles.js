@@ -15,8 +15,7 @@ function decode(text) {
 }
 
 function tokens(text) {
-  // Tokens without any letter or digit (">>" speaker changes, lone dashes) are not spoken words.
-  return decode(text.replace(/<[^>]*>/g, "")).split(/\s+/).filter((token) => /[\p{L}\p{N}]/u.test(token));
+  return decode(text.replace(/<[^>]*>/g, "")).split(/\s+/).filter((token) => isSpokenWord(token));
 }
 
 function readCues(text) {
@@ -77,7 +76,11 @@ function parseVttWords(text) {
     list.forEach((item, i) => { item.end = i + 1 < list.length ? list[i + 1].start : cue.end; });
     words.push(...list);
   }
-  // Strictly increasing starts, every word at least MIN_WORD long, no overlap with the next word.
+  return tidyTimings(words);
+}
+
+// Strictly increasing starts, every word at least MIN_WORD long, no overlap with the next word.
+function tidyTimings(words) {
   words.forEach((word, i) => {
     const prev = words[i - 1];
     if (prev) word.start = Math.max(word.start, prev.start + MIN_WORD);
@@ -86,6 +89,9 @@ function parseVttWords(text) {
   });
   return words;
 }
+
+// Tokens without any letter or digit (">>" speaker changes, lone dashes) are not spoken words.
+const isSpokenWord = (token) => /[\p{L}\p{N}]/u.test(token);
 
 // Prefer tracks with per-word timings (karaoke follows real speech), then Romanian.
 function pickCaptionTrack(tracks) {
@@ -181,4 +187,4 @@ function buildAss(words, clipStart, clipEnd, { split = false } = {}) {
   return ASS_HEADER.replace("{STYLE}", styleLine(split)) + events.join("\n") + "\n";
 }
 
-module.exports = { parseVttWords, groupWords, buildAss, pickCaptionTrack };
+module.exports = { parseVttWords, groupWords, buildAss, pickCaptionTrack, tidyTimings, isSpokenWord };
