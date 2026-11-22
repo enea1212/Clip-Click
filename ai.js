@@ -48,8 +48,16 @@ const ANSWER_SCHEMA = {
   required: ["kind", "score", "start_line", "end_line", "title", "reason"],
 };
 
+const LANGUAGE_NAMES = { en: "English", ro: "Romanian", de: "German", fr: "French", es: "Spanish", it: "Italian" };
+
 // English prompt (the model follows it best); title in the video's language, reason in Romanian.
-function buildPrompt(lines) {
+// The language is named explicitly when known: "same language as the transcript" alone made the
+// 7b model write Romanian titles for English videos.
+function buildPrompt(lines, { language } = {}) {
+  const languageName = LANGUAGE_NAMES[String(language || "").slice(0, 2)];
+  const titleRule = languageName
+    ? `title (a catchy Short title, max 12 words). The title MUST be written in ${languageName}, the language of the transcript`
+    : "title (a catchy Short title in the same language as the transcript, max 12 words)";
   return [
     "You choose the single best moment for a YouTube Short from a piece of a longer video.",
     "First decide what kind of video it is: \"stream\" (gaming/live stream), \"podcast\" (podcast/interview/talk) or \"other\".",
@@ -58,8 +66,9 @@ function buildPrompt(lines) {
     "Always: the clip must make sense on its own without context and must hook the viewer in the first 2-3 seconds.",
     "The clip must be between 20 and 50 seconds long and must start and end at whole lines.",
     "Reply in JSON with: kind; score (0-10, how good this moment is as a Short; be strict, 5 is average);",
-    "start_line and end_line (the line numbers in brackets, inclusive); title (a catchy Short title in the same language",
-    "as the transcript, max 12 words); reason (why this moment works, in Romanian, max 15 words).",
+    `start_line and end_line (the line numbers in brackets, inclusive); ${titleRule};`,
+    "reason (why this moment works, max 15 words). The reason MUST be written in Romanian (limba română),",
+    "whatever the language of the transcript, e.g. \"Reacție amuzantă la o greșeală neașteptată.\"",
     "",
     "Transcript (line number, time, text):",
     ...lines.map((line) => `[${line.i}] ${mmss(line.start)} ${line.text}`),

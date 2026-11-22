@@ -110,3 +110,9 @@ test("pickFinal: no AI answers → three rule clips", () => {
   const final = A.pickFinal([], rules);
   assert.deepEqual(final.map((c) => [c.start, c.source, c.rank]), [[0, "reguli", 3], [100, "reguli", 1], [200, "reguli", 2]]);
 });
+
+test("buildPrompt names the title language explicitly when it is known", () => {
+  assert.match(A.buildPrompt(LINES, { language: "en" }), /title[^\n]*in English/);
+  assert.match(A.buildPrompt(LINES, { language: "ro" }), /title[^\n]*in Romanian/);
+  assert.match(A.buildPrompt(LINES, {}), /same language as the transcript/);
+});
