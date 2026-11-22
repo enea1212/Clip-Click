@@ -25,14 +25,15 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `server.js`: HTTP și API (`/api/inspect`, `/api/process`, `/api/projects[/<id>]`, `/api/satisfying`, `/api/render`), job-uri ffmpeg/yt-dlp/Whisper, blocări per clip.
 - `subtitles.js`: VTT → cuvinte, grupare, fișier `.ass` karaoke. `clips.js`: alegerea celor 3 momente. `pauses.js`: segmente de vorbire și mutarea cuvintelor pe cronologia tăiată.
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
-- `whisper.js` + `transcribe.py`: transcrierea locală. `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
-- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `test/`: testele (67).
+- `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
+- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `test/`: testele (74).
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
 
 ## Cifre de referință (măsurate pe laptopul lui Enea)
 - Whisper `small` int8 pe CPU: clip de 34 s → 25,3 s (cu încărcarea modelului); 180 s audio → 76,6 s (factor 0,425; în cod `FACTOR = 0.45`).
 - Taie pauzele pe TED (vorbire densă): 34 s → 31,3 s; tăceri > 0,5 s: 2 → 0.
+- Transcriere completă TED 14 min (2 bucăți) + descărcare + 3 randări: 439 s.
 - Re-randare clip după „Aplică”: ~30 s (plus ~40 s Whisper la primul „Aplică” pe proiecte vechi).
 - Video de 6 h (stream): descărcare 6,7 GB în ~5 min; transcriere completă estimată la ~166 min.
 
@@ -44,7 +45,15 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Căile cu `D:` strică filtrele ffmpeg: ffmpeg rulează cu `cwd` = folderul proiectului și primește doar nume de fișiere.
 - Subtitrările automate YouTube repetă rândul anterior în fiecare cue. Cue-urile se citesc după liniile `-->`, nu după rândurile goale.
 - În Git Bash, heredoc-urile pot strica `\\` din cod JS. Pentru cod cu backslash se folosește editorul de fișiere.
+- La transcrierea pe bucăți, o bucată care începe fix în punctul de tăiere aude cuvântul tăiat ca pe unul nou (dublură). Audio-ul fiecărei bucăți începe cu 5 s înainte de tăiere; cuvântul aparține bucății în care începe.
+- Output-ul proceselor se decodează o singură dată, la final (`proc.js`): decodat pe bucăți, rupea diacriticele.
+- Cuvintele aflate mai mult în afara clipului se ignoră la tăierea pauzelor; altfel apare un fragment de 60 ms la început.
 - Browserul ținea `ui.css` vechi în cache. Fișierele aplicației se servesc acum cu `Cache-Control: no-cache`.
 
 ## Unde am rămas
-Funcționalitatea Whisper + tăierea pauzelor: Task-urile 0–4 și 6 sunt făcute, cu commit. **Task 5** (`/api/inspect` și transcrierea completă) e scris în `server.js`, dar **nu are încă commit**: testul real cu `transcribe: true` pe TED rula la salvare (folderul `data/4cdad1aa-…`). Urmează: verifici rezultatul, faci commit pentru Task 5, verificarea finală cu un reviewer, apoi `git push -u origin main`. Planul e în `docs/superpowers/plans/2026-11-22-whisper-pauses.md`, iar progresul în `.superpowers/sdd/2026-11-22-whisper-pauses/progress.md`.
+Funcționalitatea Whisper + tăierea pauzelor e **gata**: toate task-urile, review-ul final și reparațiile lui au commit și sunt urcate pe `main`. Probleme mici amânate: drift de până la un cadru pe segment tăiat, coduri de limbă nealiniate între `/api/inspect` și `--sub-langs`, VTT descărcate inutil la `transcribe: true`. Lista completă e în `.superpowers/sdd/2026-11-22-whisper-pauses/progress.md`.
+
+Următoarele, **fiecare pe branch-ul ei**, din critica de pe dashboard:
+1. Procesarea lungă să nu mai șteargă tot la eroare: salvare pe etape și reluare.
+2. Un singur job greu activ (acum blocarea e per UUID nou, deci două click-uri pornesc două transcrieri).
+3. Protecție contra cererilor de la alte site-uri: `Content-Type` și `Origin`.
