@@ -33,12 +33,17 @@ function parseTranscript(stdout, offset = 0) {
   return tidyTimings(joined.filter((item) => isSpokenWord(item.word)));
 }
 
+// The subtitle tracks yt-dlp is asked for. hasOriginalSubtitles uses the same list, so the
+// pre-check never promises a track that the download then doesn't fetch.
+const SUB_LANGS = "ro,ro-orig,ro-RO,en,en-orig,en-US,en-GB";
+const MANUAL_LANGS = SUB_LANGS.split(",").filter((code) => !code.endsWith("-orig"));
+
 // True when YouTube has subtitles in the video's own language (manual RO/EN, or the original
 // automatic track). Automatic translations into RO/EN don't count.
 function hasOriginalSubtitles(info = {}) {
   const manual = Object.keys(info.subtitles || {});
   const auto = Object.keys(info.automatic_captions || {});
-  if (manual.some((key) => /^(ro|en)(-|$)/.test(key) && !key.endsWith("-orig"))) return true;
+  if (manual.some((key) => MANUAL_LANGS.includes(key))) return true;
   if (auto.includes("ro-orig") || auto.includes("en-orig")) return true;
   const language = String(info.language || "").slice(0, 2);
   return ["ro", "en"].includes(language) && auto.includes(language);
@@ -75,4 +80,4 @@ function estimateMinutes(durationSeconds) {
   return Math.max(1, Math.ceil((Number(durationSeconds) || 0) * FACTOR / 60));
 }
 
-module.exports = { FACTOR, WHISPER_MISSING, MISSING_EXIT_CODE, audioArgs, parseTranscript, hasOriginalSubtitles, estimateMinutes, chunkPlan, mergeChunks, trackLanguage };
+module.exports = { SUB_LANGS, FACTOR, WHISPER_MISSING, MISSING_EXIT_CODE, audioArgs, parseTranscript, hasOriginalSubtitles, estimateMinutes, chunkPlan, mergeChunks, trackLanguage };

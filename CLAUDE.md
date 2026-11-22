@@ -27,7 +27,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `subtitles.js`: VTT → cuvinte, grupare, fișier `.ass` karaoke. `clips.js`: alegerea celor 3 momente. `pauses.js`: segmente de vorbire și mutarea cuvintelor pe cronologia tăiată.
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
 - `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
-- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `test/`: testele (86).
+- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `test/`: testele (106, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
 
@@ -49,11 +49,14 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - La transcrierea pe bucăți, o bucată care începe fix în punctul de tăiere aude cuvântul tăiat ca pe unul nou (dublură). Audio-ul fiecărei bucăți începe cu 5 s înainte de tăiere; cuvântul aparține bucății în care începe.
 - Output-ul proceselor se decodează o singură dată, la final (`proc.js`): decodat pe bucăți, rupea diacriticele.
 - Cuvintele aflate mai mult în afara clipului se ignoră la tăierea pauzelor; altfel apare un fragment de 60 ms la început.
+- **PR-uri înlănțuite pe GitHub:** la merge cu ștergerea branch-ului, PR-ul următor (care avea branch-ul șters ca bază) e **închis**, nu mutat. Mută întâi PR-urile de deasupra pe `main` (`gh pr edit N --base main`), apoi dă merge, și abia la final șterge branch-urile.
+- **Teste de server:** `CLIPTREI_FAKE_TOOLS` (unelte false din `testing/fake-tools.js`) și `CLIPTREI_DATA_DIR` / `CLIPTREI_SATISFYING_DIR` (foldere temporare). Fișierele din `test/` sunt toate tratate ca teste de `node --test`, de-asta scriptul fals stă în `testing/`.
+- Shell-ul rămas într-un folder din `data/` blochează ștergerea lui pe Windows (EBUSY).
 - Browserul ținea `ui.css` vechi în cache. Fișierele aplicației se servesc acum cu `Cache-Control: no-cache`.
 
 ## Unde am rămas
 Funcționalitatea Whisper + tăierea pauzelor e **gata**: toate task-urile, review-ul final și reparațiile lui au commit și sunt urcate pe `main`. Probleme mici amânate: drift de până la un cadru pe segment tăiat, coduri de limbă nealiniate între `/api/inspect` și `--sub-langs`, VTT descărcate inutil la `transcribe: true`. Lista completă e în `.superpowers/sdd/2026-11-22-whisper-pauses/progress.md`.
 
-Robustețea (critica de pe dashboard, punctele 1–3) e făcută pe trei branch-uri înlănțuite, cu PR-uri pe GitHub: #1 `fix/protectie-cereri` (Host/Origin/JSON), #2 `feature/un-singur-job` (409 la al doilea video), #3 `feature/reluare-procesare` (etape salvate, „Reia”, bucăți de transcriere reluabile). Merge în ordinea 1 → 2 → 3. Probleme mici amânate: `.superpowers/sdd/2026-11-22-robustete/progress.md`.
+Robustețea e în `main` (PR #1–#3: protecție cereri, un singur video, „Reia”). Pe PR-uri înlănțuite: #4 `test/procesare-server` (teste end-to-end cu unelte false), #5 `fix/rang-in-loc-de-procent` („LOCUL n DIN 3”), #6 `fix/probleme-mici`. Merge în ordinea 4 → 5 → 6, **mutând fiecare PR pe `main` înainte de a-l da pe cel de dedesubt** (vezi Capcane).
 
-Rămase din critică: teste automate pentru orchestrarea din `server.js` (`runPipeline`); procentul „POTENTIAL” inventat (de înlocuit cu un rang până la validare).
+Următorul pas mare propus: alegerea momentelor cu AI în loc de euristica cu cuvinte cheie.

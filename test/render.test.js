@@ -40,14 +40,14 @@ test("sat preview: cropped to 1080:960 aspect, no audio", () => {
 test("probe args ask for width, height, duration as json", () => {
   const args = R.probeArgs("source.mp4");
   assert.ok(has(args, "-print_format", "json"));
-  assert.ok(has(args, "-show_entries", "stream=width,height:stream_side_data=rotation:format=duration"));
+  assert.ok(has(args, "-show_entries", "stream=width,height,r_frame_rate:stream_side_data=rotation:format=duration"));
   assert.ok(has(args, "-select_streams", "v:0"));
   assert.equal(args.at(-1), "source.mp4");
 });
 
 test("parseProbe: reads size and duration", () => {
   const out = R.parseProbe(JSON.stringify({ streams: [{ width: 1920, height: 1080 }], format: { duration: "12.5" } }));
-  assert.deepEqual(out, { width: 1920, height: 1080, duration: 12.5 });
+  assert.deepEqual(out, { width: 1920, height: 1080, duration: 12.5, fps: 0 });
 });
 
 test("parseProbe: rotated phone video swaps width and height", () => {
@@ -65,4 +65,10 @@ test("clip with segments maps concat audio and uses the cut duration", () => {
   assert.ok(has(args, "-map", "[ca]"));
   assert.ok(!args.includes("0:a?"));
   assert.ok(has(args, "-t", "1.8"));
+});
+
+test("parseProbe reads the frame rate (for frame-accurate cuts)", () => {
+  const out = R.parseProbe(JSON.stringify({ streams: [{ width: 1920, height: 1080, r_frame_rate: "30000/1001" }], format: { duration: "5" } }));
+  assert.ok(Math.abs(out.fps - 29.97) < 0.01);
+  assert.equal(R.parseProbe(JSON.stringify({ streams: [{ width: 1, height: 1 }], format: {} })).fps, 0);
 });

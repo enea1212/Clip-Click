@@ -26,7 +26,7 @@ function satPreviewArgs({ satisfyingPath, satisfyingStart, length, output }) {
 }
 
 function probeArgs(file) {
-  return ["-v", "error", "-print_format", "json", "-show_entries", "stream=width,height:stream_side_data=rotation:format=duration", "-select_streams", "v:0", file];
+  return ["-v", "error", "-print_format", "json", "-show_entries", "stream=width,height,r_frame_rate:stream_side_data=rotation:format=duration", "-select_streams", "v:0", file];
 }
 
 // ffmpeg auto-rotates phone videos tagged ±90°, so the displayed size is width/height swapped.
@@ -38,7 +38,9 @@ function parseProbe(text) {
   if (!(width > 0 && height > 0)) throw new Error("Nu am putut citi dimensiunile videoclipului.");
   const rotation = Number((stream.side_data_list || []).find((item) => "rotation" in item)?.rotation) || 0;
   if (Math.abs(rotation) % 180 === 90) [width, height] = [height, width];
-  return { width, height, duration: Number(info.format?.duration) || 0 };
+  const [num, den] = String(stream.r_frame_rate || "0/1").split("/").map(Number);
+  const fps = den > 0 && num > 0 ? num / den : 0;
+  return { width, height, duration: Number(info.format?.duration) || 0, fps };
 }
 
 module.exports = { clipArgs, rawPreviewArgs, satPreviewArgs, probeArgs, parseProbe };

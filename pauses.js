@@ -56,4 +56,23 @@ function remapWords(words, clipStart, segments) {
   return out;
 }
 
-module.exports = { speechSegments, remapWords, totalDuration };
+// ffmpeg's trim cuts video on frame boundaries; snapping the segment edges to frames first
+// keeps the subtitle timeline (built from the same segments) in step with the picture.
+// Edges move outward (start down, end up), never into the speech, so even at very low frame
+// rates nothing spoken is cut; widened segments that now touch are merged; the end stays
+// inside the clip (length).
+function snapSegments(segments, fps, length = Infinity) {
+  if (!(fps > 0)) return segments;
+  const down = (t) => Math.floor(t * fps + 1e-6) / fps;
+  const up = (t) => Math.ceil(t * fps - 1e-6) / fps;
+  const merged = [];
+  for (const seg of segments) {
+    const snapped = { start: Math.max(0, down(seg.start)), end: Math.min(length, up(seg.end)) };
+    const last = merged.at(-1);
+    if (last && snapped.start <= last.end) last.end = Math.max(last.end, snapped.end);
+    else if (snapped.end > snapped.start) merged.push(snapped);
+  }
+  return merged;
+}
+
+module.exports = { speechSegments, remapWords, totalDuration, snapSegments };

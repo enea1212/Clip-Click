@@ -29,13 +29,22 @@ async function api(url, options = {}) {
 // Bumped on every view change, so a slow request can tell the user has moved on.
 let viewToken = 0;
 
+// While something is processing, re-run `reload` every 5 s as long as the user stays on this view.
+// `token` must be the viewToken taken right after the view was opened (before any await):
+// if the user left meanwhile, the refresh never runs.
+function refreshWhileOpen(reload, token) {
+  setTimeout(() => { if (token === viewToken) reload(); }, 5000);
+}
+
 function showView(name) {
   viewToken += 1;
+  // An automatic refresh of the same view must not jump the page back to the top.
+  const sameView = !views[name].classList.contains("hidden");
   for (const [key, el] of Object.entries(views)) el.classList.toggle("hidden", key !== name);
   $("#new-link").classList.toggle("active", name === "start");
   $("#history-link").classList.toggle("active", name === "projects");
   $("#crumb").textContent = name === "projects" ? "Proiectele mele" : name === "results" ? "Proiect" : "Proiect nou";
-  window.scrollTo({ top: 0 });
+  if (!sameView) window.scrollTo({ top: 0 });
 }
 
 function showMessage(kind, title, text) {
@@ -56,16 +65,18 @@ async function route() {
 
 async function openProject(id) {
   showView("results");
+  const token = viewToken;
   $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
   $("#video-label").textContent = "";
   showMessage("loading", "Se încarcă proiectul", "");
   try {
     const project = await api(`/api/projects/${id}`);
+    if (token !== viewToken) return;
     if (project.status && project.status !== "ready") {
       $("#video-label").textContent = project.title || "";
       return project.status === "failed"
         ? showMessage("error", "Proiect incomplet", `${project.error || ""} Îl poți relua din „Proiectele mele” cu „Reia”.`)
-        : showMessage("loading", "Proiectul se procesează", STAGE_LABELS[project.status] || "");
+        : (showMessage("loading", "Proiectul se procesează", STAGE_LABELS[project.status] || ""), refreshWhileOpen(() => openProject(id), token));
     }
     renderProject(project);
   } catch (error) {
@@ -155,12 +166,15 @@ window.addEventListener("hashchange", route);
 
 async function showProjects() {
   showView("projects");
+  const token = viewToken;
   const list = $("#project-list");
   list.innerHTML = `<div class="processing-state"><div class="loader"></div><strong>Se încarcă proiectele</strong></div>`;
   try {
     const projects = await api("/api/projects");
+    if (token !== viewToken) return;
     if (!projects.length) { list.innerHTML = `<p class="empty-list">Nu ai încă proiecte.</p>`; return; }
     list.innerHTML = projects.map(projectRow).join("");
+    if (projects.some((item) => STAGE_LABELS[item.status])) refreshWhileOpen(showProjects, token);
   } catch (error) {
     list.innerHTML = `<div class="processing-error"><strong>Nu am putut încărca proiectele</strong><span>${escapeHtml(error.message)}</span></div>`;
   }
@@ -203,12 +217,16 @@ $("#project-list").addEventListener("click", async (event) => {
   if (resume) {
     resume.disabled = true;
     resume.textContent = "Se reia…";
+    // Resuming can take hours: only jump to the project if the user is still on this list.
+    const token = viewToken;
     try {
       await api(`/api/projects/${row.dataset.id}/resume`, { method: "POST", body: {} });
-      location.hash = `#/p/${row.dataset.id}`;
+      if (token === viewToken) location.hash = `#/p/${row.dataset.id}`;
     } catch (error) {
-      alert(error.message);
-      showProjects();
+      if (token === viewToken) {
+        alert(error.message);
+        showProjects();
+      }
     }
     return;
   }

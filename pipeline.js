@@ -38,4 +38,11 @@ function keepForResume({ firstRun, hasSource, permanent }) {
   return hasSource || !firstRun;
 }
 
-module.exports = { resumePlan, missingChunks, normalizeStatus, keepForResume, INTERRUPTED };
+// Files a crash can leave behind: temporary audio, and rendered clips no project entry uses
+// (half-written by a killed ffmpeg, or superseded). files: names in the project folder.
+function leftoverFiles(project, files) {
+  const used = new Set((project.clips || []).map((clip) => fileOf(clip.video)).filter(Boolean));
+  return files.filter((name) => /\.wav$/i.test(name) || (/^short-\d+-\d+\.mp4$/.test(name) && !used.has(name)));
+}
+
+module.exports = { resumePlan, missingChunks, normalizeStatus, keepForResume, leftoverFiles, INTERRUPTED };

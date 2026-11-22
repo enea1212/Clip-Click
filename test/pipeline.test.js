@@ -59,3 +59,11 @@ test("keepForResume: keep only when there is something to reuse and retrying cou
   assert.equal(keepForResume({ firstRun: false, hasSource: true, permanent: true }), false, "too short / no speech: Reia would fail forever");
   assert.equal(keepForResume({ firstRun: true, hasSource: true, permanent: true }), false);
 });
+
+const { leftoverFiles } = require("../pipeline");
+
+test("leftoverFiles: temp audio and clips no project entry points to", () => {
+  const project = { clips: [{ n: 1, video: "/data/x/short-1-200.mp4" }, { n: 2, video: null }] };
+  const files = ["source.mp4", "chunk-1.wav", "clip-2.wav", "full.wav", "short-1-100.mp4", "short-1-200.mp4", "short-2-300.mp4", "raw-1.mp4", "words.json"];
+  assert.deepEqual(leftoverFiles(project, files).sort(), ["chunk-1.wav", "clip-2.wav", "full.wav", "short-1-100.mp4", "short-2-300.mp4"]);
+});
