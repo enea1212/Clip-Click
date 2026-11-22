@@ -9,6 +9,8 @@ const { chooseClips } = require("./clips");
 const { clipArgs, rawPreviewArgs, satPreviewArgs, probeArgs, parseProbe } = require("./render");
 const P = require("./projects");
 const { resolveStatic, decodePath, parseRange } = require("./http-utils");
+const W = require("./whisper");
+const { speechSegments, remapWords, totalDuration } = require("./pauses");
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
@@ -29,7 +31,12 @@ function run(command, args, options = {}) {
     child.stdout?.on("data", (chunk) => { stdout += chunk; });
     child.stderr?.on("data", (chunk) => { stderr += chunk; });
     child.on("error", reject);
-    child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(stderr.trim().split("\n").slice(-5).join("\n") || `${command} exited with ${code}`)));
+    child.on("close", (code) => {
+      if (code === 0) return resolve(stdout.trim());
+      const error = new Error(stderr.trim().split("\n").slice(-5).join("\n") || `${command} exited with ${code}`);
+      error.exitCode = code;
+      reject(error);
+    });
   });
 }
 
@@ -59,23 +66,75 @@ async function withLock(key, busyMessage, job) {
   try { return await job(); } finally { locks.release(key); }
 }
 
+// Transcribes [start, end] of source.mp4 (or the whole file) with local Whisper.
+async function whisperWords(folder, { start, end, wav }) {
+  await run("ffmpeg", W.audioArgs({ start, end, output: wav }), { cwd: folder });
+  try {
+    const out = await run("python", [path.join(ROOT, "transcribe.py"), wav], { cwd: folder, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+    return W.parseTranscript(out, start || 0);
+  } catch (error) {
+    if (error.exitCode === W.MISSING_EXIT_CODE) {
+      const missing = new UserError(W.WHISPER_MISSING);
+      missing.whisperMissing = true;
+      throw missing;
+    }
+    throw error;
+  } finally {
+    fs.rmSync(path.join(folder, wav), { force: true });
+  }
+}
+
+const clipWordsFile = (folder, n) => path.join(folder, `words-${n}.json`);
+
+// Exact word timings for one clip: Whisper on the clip's audio, or the YouTube words as fallback.
+async function prepareClipWords(folder, clip, fallbackWords) {
+  let words = [];
+  let wordsSource = "whisper";
+  try {
+    words = await whisperWords(folder, { start: clip.start, end: clip.end, wav: `clip-${clip.n}.wav` });
+  } catch (error) {
+    console.warn(`[whisper] clip ${clip.n}: ${error.message}`);
+  }
+  if (!words.length) {
+    wordsSource = "youtube";
+    words = fallbackWords.filter((word) => word.end > clip.start && word.start < clip.end);
+  }
+  fs.writeFileSync(clipWordsFile(folder, clip.n), JSON.stringify(words), "utf8");
+  return { wordsSource };
+}
+
 // Renders one clip and returns the fields to store; the caller saves them.
-async function renderClip(project, clip, words, { zoom, split }) {
+// With cutPauses the silences are removed (needs Whisper timings) and the clip gets shorter.
+async function renderClip(project, clip, words, { zoom, split, cutPauses = false }) {
   const folder = folderOf(project.id);
   const subtitles = `captions-${clip.n}.ass`;
   const output = `short-${clip.n}-${Date.now()}.mp4`;
-  fs.writeFileSync(path.join(folder, subtitles), buildAss(words, clip.start, clip.end, { split }), "utf8");
+  let segments = null;
+  let duration = clip.end - clip.start;
+  let ass = buildAss(words, clip.start, clip.end, { split });
+  if (cutPauses) {
+    const found = speechSegments(words, clip.start, clip.end);
+    if (found.length) {
+      segments = found;
+      duration = totalDuration(found);
+      ass = buildAss(remapWords(words, clip.start, found), 0, duration, { split });
+    } else {
+      console.warn(`[pauses] clip ${clip.n}: no speech found, rendering uncut`);
+    }
+  }
+  fs.writeFileSync(path.join(folder, subtitles), ass, "utf8");
   try {
     await run("ffmpeg", clipArgs({
       start: clip.start, end: clip.end, srcW: project.sourceWidth, srcH: project.sourceHeight, zoom, split, subtitles, output,
       satisfyingPath: split ? path.join(SATISFYING_DIR, clip.satisfying.file) : undefined,
       satisfyingStart: split ? clip.satisfying.start : undefined,
+      segments,
     }), { cwd: folder });
   } catch (error) {
     fs.rmSync(path.join(folder, output), { force: true });
     throw error;
   }
-  return { video: publicPath(project.id, output), zoom, satisfyingOn: split };
+  return { video: publicPath(project.id, output), zoom, satisfyingOn: split, cutPauses: Boolean(segments), duration };
 }
 
 function removePublicFile(id, publicUrl) {
@@ -127,7 +186,9 @@ async function downloadAndBuild(id, folder, url) {
     })),
   };
   for (const clip of project.clips) {
-    Object.assign(clip, await renderClip(project, clip, words, { zoom: 1, split: false }));
+    Object.assign(clip, await prepareClipWords(folder, clip, words));
+    const clipWords = JSON.parse(fs.readFileSync(clipWordsFile(folder, clip.n), "utf8"));
+    Object.assign(clip, await renderClip(project, clip, clipWords, { zoom: 1, split: false, cutPauses: clip.wordsSource === "whisper" }));
     const raw = `raw-${clip.n}.mp4`;
     await run("ffmpeg", rawPreviewArgs({ start: clip.start, end: clip.end, output: raw }), { cwd: folder });
     clip.raw = publicPath(id, raw);
@@ -161,11 +222,12 @@ async function chooseSatisfying({ id, clip: n }) {
   });
 }
 
-async function rerender({ id, clip: n, zoom, satisfying }) {
+async function rerender({ id, clip: n, zoom, satisfying, cutPauses }) {
   const project = loadProject(id);
   clipOf(project, n);
   if (typeof zoom !== "number" || !(zoom >= 0 && zoom <= 1)) throw new UserError("Zoom invalid.");
   const split = satisfying === true;
+  if (cutPauses !== undefined && typeof cutPauses !== "boolean") throw new UserError("Valoare invalidă pentru tăierea pauzelor.");
   return withLock(`${id}:${n}`, "Clipul se randează deja.", async () => {
     // Re-read under the lock so the gameplay choice is the latest one.
     const fresh = loadProject(id);
@@ -177,9 +239,18 @@ async function rerender({ id, clip: n, zoom, satisfying }) {
       const { duration } = await probe(path.join(SATISFYING_DIR, clip.satisfying.file), SATISFYING_DIR);
       clip.satisfying.start = P.clampSatisfyingStart(clip.satisfying.start, duration, clip.end - clip.start);
     }
-    const words = JSON.parse(fs.readFileSync(path.join(folderOf(id), "words.json"), "utf8"));
+    const folder = folderOf(id);
+    // Projects made before Whisper have no per-clip words yet: create them on the first render.
+    if (!fs.existsSync(clipWordsFile(folder, n))) {
+      const fallback = JSON.parse(fs.readFileSync(path.join(folder, "words.json"), "utf8"));
+      Object.assign(clip, await prepareClipWords(folder, clip, fallback));
+      P.updateClip(DATA_DIR, id, n, { wordsSource: clip.wordsSource });
+    }
+    const wantCut = typeof cutPauses === "boolean" ? cutPauses : clip.cutPauses === true;
+    if (wantCut && clip.wordsSource !== "whisper") throw new UserError("Necesită transcriere Whisper.");
+    const words = JSON.parse(fs.readFileSync(clipWordsFile(folder, n), "utf8"));
     const previous = clip.video;
-    const updated = P.updateClip(DATA_DIR, id, n, await renderClip(fresh, clip, words, { zoom, split }));
+    const updated = P.updateClip(DATA_DIR, id, n, await renderClip(fresh, clip, words, { zoom, split, cutPauses: wantCut }));
     removePublicFile(id, previous);
     return updated;
   });
