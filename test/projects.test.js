@@ -116,3 +116,14 @@ test("gameplay start is clamped if the file became shorter after it was picked",
   assert.equal(P.clampSatisfyingStart(10, 100, 34), 10);
   assert.equal(P.clampSatisfyingStart(10, 0, 34), 0);
 });
+
+test("heavy lock: only one processing job at a time", () => {
+  const locks = P.createLocks();
+  assert.equal(locks.heavyBusy(), false);
+  assert.equal(locks.acquireHeavy(), true);
+  assert.equal(locks.heavyBusy(), true);
+  assert.equal(locks.acquireHeavy(), false);
+  locks.releaseHeavy();
+  assert.equal(locks.heavyBusy(), false);
+  assert.equal(locks.acquireHeavy(), true);
+});

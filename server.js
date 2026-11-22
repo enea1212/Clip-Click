@@ -45,6 +45,7 @@ async function probe(file, cwd) {
 
 // One job per clip at a time, and no deleting a project while any of its jobs runs.
 const locks = P.createLocks();
+const BUSY_MESSAGE = "Se procesează deja un video. Încearcă după ce termină.";
 async function withLock(key, busyMessage, job) {
   if (!locks.acquire(key)) throw new UserError(busyMessage, 409);
   try { return await job(); } finally { locks.release(key); }
@@ -169,16 +170,22 @@ async function inspectVideo(rawUrl) {
 async function processVideo(rawUrl, { transcribe = false } = {}) {
   const url = safeUrl(rawUrl);
   if (!url) throw new UserError("Te rog introdu un link https valid de YouTube.");
-  if (transcribe && !(await whisperAvailable())) throw new UserError(W.WHISPER_MISSING);
-  const id = randomUUID();
-  const folder = folderOf(id);
-  fs.mkdirSync(folder, { recursive: true });
+  // One heavy job at a time: refuse before creating a folder or downloading anything.
+  if (!locks.acquireHeavy()) throw new UserError(BUSY_MESSAGE, 409);
   try {
-    return await withLock(`${id}:process`, "Proiectul se procesează deja.", () => downloadAndBuild(id, folder, url, transcribe === true));
-  } catch (error) {
-    // A failed run leaves nothing usable, possibly a multi-GB source: clean it up.
-    try { fs.rmSync(folder, { recursive: true, force: true }); } catch { /* listed as incomplete; deletable later */ }
-    throw error;
+    if (transcribe && !(await whisperAvailable())) throw new UserError(W.WHISPER_MISSING);
+    const id = randomUUID();
+    const folder = folderOf(id);
+    fs.mkdirSync(folder, { recursive: true });
+    try {
+      return await withLock(`${id}:process`, "Proiectul se procesează deja.", () => downloadAndBuild(id, folder, url, transcribe === true));
+    } catch (error) {
+      // A failed run leaves nothing usable, possibly a multi-GB source: clean it up.
+      try { fs.rmSync(folder, { recursive: true, force: true }); } catch { /* listed as incomplete; deletable later */ }
+      throw error;
+    }
+  } finally {
+    locks.releaseHeavy();
   }
 }
 
