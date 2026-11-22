@@ -99,3 +99,10 @@ test("trackLanguage reads the language of a subtitle track file name", () => {
   assert.equal(W.trackLanguage("whisper"), null);
   assert.equal(W.trackLanguage(undefined), null);
 });
+
+test("hasOriginalSubtitles uses exactly the languages that get downloaded", () => {
+  assert.equal(W.hasOriginalSubtitles({ language: "en", subtitles: { "en-CA": [] }, automatic_captions: {} }), false, "en-CA is not downloaded");
+  assert.equal(W.hasOriginalSubtitles({ language: "ro", subtitles: { "ro-MD": [] }, automatic_captions: {} }), false);
+  assert.equal(W.hasOriginalSubtitles({ language: "en", subtitles: { "en-GB": [] }, automatic_captions: {} }), true);
+  assert.equal(W.SUB_LANGS, "ro,ro-orig,ro-RO,en,en-orig,en-US,en-GB");
+});

@@ -62,3 +62,11 @@ test("segments: a word mostly inside the clip is kept even if it starts just bef
   assert.equal(segs.length, 1);
   assert.equal(segs[0].start, 0);
 });
+
+const { snapSegments } = require("../pauses");
+
+test("snapSegments: segment edges land on video frames so captions don't drift", () => {
+  const snapped = snapSegments([{ start: 0.51, end: 2.13 }, { start: 2.9, end: 3.52 }], 25);
+  assert.deepEqual(snapped, [{ start: 0.52, end: 2.12 }, { start: 2.92, end: 3.52 }]);
+  assert.deepEqual(snapSegments([{ start: 0.51, end: 2.13 }], 0), [{ start: 0.51, end: 2.13 }], "unknown fps: unchanged");
+});

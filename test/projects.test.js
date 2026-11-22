@@ -127,3 +127,11 @@ test("heavy lock: only one processing job at a time", () => {
   assert.equal(locks.heavyBusy(), false);
   assert.equal(locks.acquireHeavy(), true);
 });
+
+test("writeJsonAtomic writes the file whole and leaves no temp file", () => {
+  const dir = tmp();
+  const file = path.join(dir, "words.json");
+  P.writeJsonAtomic(file, [{ word: "ș", start: 1, end: 2 }]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), [{ word: "ș", start: 1, end: 2 }]);
+  assert.deepEqual(fs.readdirSync(dir), ["words.json"]);
+});

@@ -28,6 +28,14 @@ function saveProject(dataDir, project) {
   fs.renameSync(temp, file);
 }
 
+// Any JSON the pipeline later trusts as "done" (words, transcript windows) is written whole or not
+// at all: a crash mid-write must not leave a truncated file that every „Reia” would choke on.
+function writeJsonAtomic(file, value) {
+  const temp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(value), "utf8");
+  fs.renameSync(temp, file);
+}
+
 // Re-reads the saved project and changes only one clip, synchronously (no await between
 // read and write), so concurrent jobs on other clips never overwrite each other.
 function updateClip(dataDir, id, n, changes) {
@@ -108,4 +116,4 @@ function clampSatisfyingStart(start, duration, clipLength) {
   return Math.max(0, Math.min(start, duration - clipLength));
 }
 
-module.exports = { clampSatisfyingStart, isValidId, readProject, saveProject, updateClip, createLocks, listProjects, deleteProject, safeSatisfyingName, listSatisfying, pickSatisfying, EMPTY_SATISFYING };
+module.exports = { writeJsonAtomic, clampSatisfyingStart, isValidId, readProject, saveProject, updateClip, createLocks, listProjects, deleteProject, safeSatisfyingName, listSatisfying, pickSatisfying, EMPTY_SATISFYING };

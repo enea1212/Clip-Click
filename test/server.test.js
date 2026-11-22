@@ -145,3 +145,49 @@ test("requests from another site are refused", async () => {
   const { status } = await post("/api/inspect", { url: URL_A }, { Origin: "http://evil.com" });
   assert.equal(status, 403);
 });
+
+test("resume gives a title to a project whose download step never saved one", async () => {
+  setControl({ duration: 900 });
+  const id = "44444444-5555-4666-8777-888888888888";
+  fs.mkdirSync(path.join(DATA, id), { recursive: true });
+  fs.writeFileSync(path.join(DATA, id, "source.mp4"), "fake video");
+  fs.writeFileSync(path.join(DATA, id, "project.json"), JSON.stringify({ id, title: "", url: URL_A, transcribe: false, createdAt: new Date().toISOString(), status: "failed", error: "x", clips: [] }));
+  const { status, body } = await post(`/api/projects/${id}/resume`, {});
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.title, "Video fără titlu");
+});
+
+test("without faster-whisper, YouTube timings are used but not locked in for later", async () => {
+  setControl({ duration: 900, noWhisper: true });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.ok(body.clips.every((clip) => clip.wordsSource === "youtube" && clip.cutPauses === false));
+  assert.equal(fs.existsSync(path.join(DATA, body.id, "words-1.json")), false);
+  setControl({ duration: 900 });
+  const render = await post("/api/render", { id: body.id, clip: 1, zoom: 1, satisfying: false, cutPauses: true });
+  assert.equal(render.status, 200, JSON.stringify(render.body));
+  assert.equal(render.body.wordsSource, "whisper");
+  assert.equal(render.body.cutPauses, true);
+});
+
+test("full transcription doesn't ask YouTube for subtitles it won't use", async () => {
+  setControl({ duration: 900, noSubs: true });
+  const { status } = await post("/api/process", { url: URL_A, transcribe: true });
+  assert.equal(status, 200);
+  const download = calls().find((line) => line.startsWith("python -m yt_dlp") && !line.includes("--dump-json"));
+  assert.ok(download && !download.includes("--write-subs"), download);
+});
+
+test("a crash's leftovers (temp audio, orphan clips) are cleaned when the project resumes", async () => {
+  setControl({ duration: 900 });
+  const first = await post("/api/process", { url: URL_A });
+  const folder = path.join(DATA, first.body.id);
+  fs.writeFileSync(path.join(folder, "chunk-3.wav"), "x");
+  fs.writeFileSync(path.join(folder, "short-2-1.mp4"), "half-written");
+  const project = JSON.parse(fs.readFileSync(path.join(folder, "project.json"), "utf8"));
+  fs.writeFileSync(path.join(folder, "project.json"), JSON.stringify({ ...project, status: "failed", error: "x" }));
+  const resumed = await post(`/api/projects/${first.body.id}/resume`, {});
+  assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+  assert.equal(fs.existsSync(path.join(folder, "chunk-3.wav")), false);
+  assert.equal(fs.existsSync(path.join(folder, "short-2-1.mp4")), false);
+});
