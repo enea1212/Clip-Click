@@ -49,3 +49,13 @@ test("normalizeStatus: a running job keeps its stage; failed keeps its own error
   assert.equal(normalizeStatus({ status: "rendering", clips: [] }, true).status, "rendering");
   assert.deepEqual(normalizeStatus({ status: "failed", error: "x", clips: [] }, false), { status: "failed", error: "x", clips: [] });
 });
+
+const { keepForResume } = require("../pipeline");
+
+test("keepForResume: keep only when there is something to reuse and retrying could help", () => {
+  assert.equal(keepForResume({ firstRun: true, hasSource: false, permanent: false }), false, "nothing downloaded");
+  assert.equal(keepForResume({ firstRun: false, hasSource: true, permanent: false }), true, "crash or temporary error: resume");
+  assert.equal(keepForResume({ firstRun: true, hasSource: true, permanent: false }), true);
+  assert.equal(keepForResume({ firstRun: false, hasSource: true, permanent: true }), false, "too short / no speech: Reia would fail forever");
+  assert.equal(keepForResume({ firstRun: true, hasSource: true, permanent: true }), false);
+});

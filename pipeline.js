@@ -30,4 +30,12 @@ function normalizeStatus(project, jobRunning) {
   return { ...project, status };
 }
 
-module.exports = { resumePlan, missingChunks, normalizeStatus, INTERRUPTED };
+// After a failure: keep the project for „Reia” only when there is something to reuse and
+// retrying can succeed. Permanent errors (video too short, no speech) would fail on every
+// „Reia” while keeping GB of video, so those projects are removed, as before.
+function keepForResume({ firstRun, hasSource, permanent }) {
+  if (permanent) return false;
+  return hasSource || !firstRun;
+}
+
+module.exports = { resumePlan, missingChunks, normalizeStatus, keepForResume, INTERRUPTED };

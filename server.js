@@ -11,7 +11,10 @@ const P = require("./projects");
 const { resolveStatic, decodePath, parseRange, checkRequest } = require("./http-utils");
 const W = require("./whisper");
 const { speechSegments, remapWords, totalDuration } = require("./pauses");
-const { resumePlan, missingChunks, normalizeStatus } = require("./pipeline");
+const { resumePlan, missingChunks, normalizeStatus, keepForResume } = require("./pipeline");
+
+// Errors that will happen again on every „Reia” (the video itself is the problem).
+const permanent = (error) => Object.assign(error, { permanent: true });
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
@@ -238,10 +241,17 @@ async function runPipeline(id, { firstRun }) {
           // No original-language subtitles: transcribe the whole video (the user confirmed the estimate).
           project.track = "whisper";
           words = await transcribeWholeVideo(folder, (await probe("source.mp4", folder)).duration);
-          if (!words.length) throw new UserError("Whisper nu a găsit vorbire în acest videoclip.");
+          if (!words.length) throw permanent(new UserError("Whisper nu a găsit vorbire în acest videoclip."));
         } else {
-          const captions = fs.readdirSync(folder).filter((name) => name.startsWith("source.") && name.endsWith(".vtt")).map((name) => ({ name, text: fs.readFileSync(path.join(folder, name), "utf8") }));
-          if (!captions.length) throw new UserError("Nu am găsit subtitrări pentru acest videoclip.");
+          const readCaptions = () => fs.readdirSync(folder).filter((name) => name.startsWith("source.") && name.endsWith(".vtt")).map((name) => ({ name, text: fs.readFileSync(path.join(folder, name), "utf8") }));
+          let captions = readCaptions();
+          if (!captions.length) {
+            // Subtitles can be missing because YouTube refused them (HTTP 429), not because they
+            // don't exist: fetch only the subtitles again (no video), so „Reia” can succeed.
+            await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", "--skip-download", "--write-auto-subs", "--write-subs", "--sub-langs", "ro,ro-orig,ro-RO,en,en-orig,en-US,en-GB", "--sub-format", "vtt/best", "-o", path.join(folder, "source.%(ext)s"), project.url], { cwd: folder, windowsHide: true }).catch(() => {});
+            captions = readCaptions();
+          }
+          if (!captions.length) throw new UserError("Nu am găsit subtitrări pentru acest videoclip. Dacă YouTube a refuzat temporar descărcarea, încearcă „Reia” mai târziu.");
           project.track = pickCaptionTrack(captions);
           words = parseVttWords(captions.find((item) => item.name === project.track).text);
         }
@@ -253,7 +263,7 @@ async function runPipeline(id, { firstRun }) {
       if (plan.choose) {
         const transcript = groupWords(words).map((group) => ({ start: group[0].start, end: group.at(-1).end, caption: group.map((item) => item.word).join(" ") }));
         const chosen = chooseClips(transcript);
-        if (chosen.length < 3) throw new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente.");
+        if (chosen.length < 3) throw permanent(new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente."));
         const source = await probe("source.mp4", folder);
         saveStage(project, {
           sourceWidth: source.width, sourceHeight: source.height,
@@ -278,6 +288,9 @@ async function runPipeline(id, { firstRun }) {
           } else {
             Object.assign(clip, await prepareClipWords(folder, clip, words, W.trackLanguage(project.track)));
           }
+          // Save at once: words-N.json now exists, so after a crash this step is skipped and
+          // wordsSource must already be on disk (it decides whether pauses can be cut).
+          saveStage(project, {});
         }
         const clipWords = JSON.parse(fs.readFileSync(clipWordsFile(folder, n), "utf8"));
         const previous = clip.video;
@@ -292,9 +305,10 @@ async function runPipeline(id, { firstRun }) {
       saveStage(project, { status: "ready", error: undefined });
       return project;
     } catch (error) {
-      // Nothing downloaded on a first run: nothing to resume, so don't leave an empty project.
-      if (firstRun && !fs.existsSync(path.join(folder, "source.mp4"))) {
+      if (!keepForResume({ firstRun, hasSource: fs.existsSync(path.join(folder, "source.mp4")), permanent: error.permanent === true })) {
+        // Nothing to reuse, or „Reia” would hit the same error forever: don't keep GB on disk.
         try { fs.rmSync(folder, { recursive: true, force: true }); } catch { /* listed as incomplete; deletable later */ }
+        if (!firstRun) error.message += " Proiectul a fost șters, pentru că reluarea n-ar schimba rezultatul.";
         throw error;
       }
       // Keep everything done so far (possibly GB of video and hours of transcription).
