@@ -257,7 +257,7 @@ function createCard(project, clip) {
     const seconds = Number(clip.duration) || clip.end - clip.start;
     return `<h3 class="clip-name">Short ${clip.n}</h3>
       <p class="clip-description">${escapeHtml(clip.caption)}</p>
-      <div class="clip-meta"><span>${escapeHtml(clip.time)} · ${Math.round(seconds)} s</span><span class="clip-score">POTENTIAL ${escapeHtml(clip.score)}</span></div>`;
+      <div class="clip-meta"><span>${escapeHtml(clip.time)} · ${Math.round(seconds)} s</span><span class="clip-score">${clip.rank ? `LOCUL ${Number(clip.rank)} DIN 3` : escapeHtml(clip.score || "")}</span></div>`;
   }
 
   function showResult() {

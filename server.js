@@ -5,7 +5,7 @@ const os = require("node:os");
 const { run } = require("./proc");
 const { randomUUID } = require("node:crypto");
 const { parseVttWords, groupWords, buildAss, pickCaptionTrack } = require("./subtitles");
-const { chooseClips } = require("./clips");
+const { chooseClips, rankClips } = require("./clips");
 const { clipArgs, rawPreviewArgs, satPreviewArgs, probeArgs, parseProbe } = require("./render");
 const P = require("./projects");
 const { resolveStatic, decodePath, parseRange, checkRequest } = require("./http-utils");
@@ -266,12 +266,13 @@ async function runPipeline(id, { firstRun }) {
         const chosen = chooseClips(transcript);
         if (chosen.length < 3) throw permanent(new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente."));
         const source = await probe("source.mp4", folder);
+        const ranks = rankClips(chosen);
         saveStage(project, {
           sourceWidth: source.width, sourceHeight: source.height,
           clips: chosen.map((clip, index) => ({
             n: index + 1, start: clip.start, end: clip.end,
             time: `${timestamp(clip.start)} — ${timestamp(clip.end)}`,
-            score: `${Math.min(99, Math.round(70 + clip.score * 2))}%`,
+            rank: ranks[index],
             caption: clip.entries.map((entry) => entry.caption).join(" ").slice(0, 180),
             zoom: 1, satisfyingOn: false, satisfying: null, video: null, raw: null,
           })),
