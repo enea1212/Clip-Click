@@ -63,7 +63,8 @@ test("buildPrompt: numbered lines with mm:ss, the 20–50 s rule and the reply f
 
 test("parseAnswer: a valid answer becomes a clip on line boundaries", () => {
   const clip = A.parseAnswer({ kind: "podcast", score: 8, start_line: 2, end_line: 7, title: " Big idea ", reason: "Idee clară" }, LINES);
-  assert.deepEqual(clip, { kind: "podcast", score: 8, start: 107.9, end: 131.7, title: "Big idea", reason: "Idee clară" });
+  // Lines 2–7 span 23.8 s, so one line is added after and one before to reach ≥ 30 s.
+  assert.deepEqual(clip, { kind: "podcast", score: 8, start: 103.9, end: 135.7, title: "Big idea", reason: "Idee clară" });
 });
 
 test("parseAnswer: out of range, reversed or malformed answers are rejected", () => {
@@ -145,4 +146,20 @@ test("pickFinal follows the AI ranking order when given, not the per-candidate s
   ];
   const final = A.pickFinal(ai, []);
   assert.deepEqual(final.map((c) => [c.title, c.rank]), [["B", 3], ["A", 1], ["C", 2]]);
+});
+
+test("chooseFinal: AI clips crowding out the rule picks fall back to the rules (never fewer than 3)", () => {
+  const rules = [{ start: 0, end: 34, score: 3 }, { start: 45, end: 79, score: 2 }, { start: 90, end: 124, score: 1 }];
+  const ai = [{ start: 20, end: 60, score: 8, title: "straddles two rule clips", reason: "r", kind: "podcast" }];
+  assert.equal(A.pickFinal(ai, rules).length, 2, "the plain pick would come up short");
+  const final = A.chooseFinal(ai, rules);
+  assert.equal(final.length, 3);
+  assert.ok(final.every((clip) => clip.source === "reguli"));
+  assert.equal(A.chooseFinal([], rules.slice(0, 2)).length, 2, "genuinely too short stays short");
+});
+
+test("parseAnswer widens a short pick to at least 30 s around the AI's core (the 7b model always picks ~20 s)", () => {
+  const clip = A.parseAnswer({ kind: "podcast", score: 7, start_line: 5, end_line: 6, title: "t", reason: "r" }, LINES);
+  assert.ok(clip.end - clip.start >= 30 && clip.end - clip.start <= 50, `${clip.end - clip.start}`);
+  assert.ok(clip.start <= 120 - 0.1 + 1e-9 && clip.end >= 127.5 + 0.2 - 1e-9, "keeps the chosen lines");
 });

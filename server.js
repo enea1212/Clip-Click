@@ -237,16 +237,21 @@ async function rechooseProject(id) {
   if (!ai.ok) throw new UserError(`AI-ul nu e disponibil: ${ai.reason}.`);
   if (!locks.acquireHeavy()) throw new UserError(BUSY_MESSAGE, 409);
   try {
+    // A clip being re-rendered or getting a new gameplay video: its files must not vanish.
+    if (locks.isProjectBusy(id)) throw new UserError("Un clip al proiectului se randează acum. Încearcă după ce termină.", 409);
     return await withLock(`${id}:rechoose`, "Proiectul se procesează deja.", async () => {
       const folder = folderOf(id);
       const fresh = loadProject(id);
-      for (const clip of fresh.clips) {
+      const oldClips = fresh.clips;
+      // Mark it resumable first: if a delete below fails, the project is never left looking
+      // "ready" while pointing to deleted videos — „Reia” finishes the job.
+      saveStage(fresh, { clips: [], selection: undefined, selectionNote: undefined, aiProgress: undefined, status: "failed", error: "Se aleg din nou momentele." });
+      for (const clip of oldClips) {
         for (const name of [fileOfUrl(clip.video), fileOfUrl(clip.raw), `sat-${clip.n}.mp4`, `captions-${clip.n}.ass`, `words-${clip.n}.json`]) {
           if (name) try { fs.rmSync(path.join(folder, name), { force: true }); } catch { /* in use: cleaned on a later run */ }
         }
       }
-      fs.rmSync(path.join(folder, "ai"), { recursive: true, force: true });
-      saveStage(fresh, { clips: [], selection: undefined, selectionNote: undefined, aiProgress: undefined, status: "failed", error: "Se aleg din nou momentele." });
+      try { fs.rmSync(path.join(folder, "ai"), { recursive: true, force: true }); } catch { /* stale answers are ignored below */ }
       return runPipeline(id, { firstRun: false });
     });
   } finally {
@@ -261,6 +266,11 @@ const subtitleArgs = (transcribe) => (transcribe ? [] : ["--write-auto-subs", "-
 
 const saveStage = (project, changes) => { Object.assign(project, changes); P.saveProject(DATA_DIR, project); };
 
+// A cache file that is missing or unreadable (e.g. cut off by a crash) counts as "not done yet".
+function readJsonOrNull(file) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; }
+}
+
 // Language of the transcript, so the AI writes titles in it: the subtitle track's language, or
 // the one Whisper detected for a full transcription.
 function transcriptLanguage(project, folder) {
@@ -274,19 +284,20 @@ function transcriptLanguage(project, folder) {
 // per-candidate scores decide, as before.
 async function rankWithAi(project, aiDir, aiClips, words) {
   const file = path.join(aiDir, "ranking.json");
-  let order = null;
-  if (fs.existsSync(file)) {
-    ({ order } = JSON.parse(fs.readFileSync(file, "utf8")));
-  } else {
+  const key = aiClips.map((clip) => `${clip.start}-${clip.end}`).join(",");
+  const cached = readJsonOrNull(file);
+  let order = cached && cached.key === key ? cached.order : null;
+  if (!cached || cached.key !== key) {
     saveStage(project, { aiProgress: { ...project.aiProgress, ranking: true } });
     const textOf = (clip) => words.filter((word) => word.start >= clip.start && word.start < clip.end).map((word) => word.word).join(" ");
     try {
       const raw = await AI.askOllama(AI.buildRankPrompt(aiClips.map((clip) => ({ title: clip.title, text: textOf(clip) }))), { schema: AI.RANK_SCHEMA });
       order = AI.parseRanking(raw, aiClips.length);
+      // Only a real answer is cached; a timeout or a crashed Ollama is retried on „Reia”.
+      P.writeJsonAtomic(file, { key, order });
     } catch (error) {
       console.warn(`[ai] clasarea: ${error.message}`);
     }
-    P.writeJsonAtomic(file, { order });
     saveStage(project, { aiProgress: { done: project.aiProgress.done, total: project.aiProgress.total } });
   }
   if (Array.isArray(order)) order.forEach((clipIndex, position) => { if (aiClips[clipIndex]) aiClips[clipIndex].order = position; });
@@ -308,30 +319,41 @@ async function chooseMoments(project, folder, words) {
     fs.mkdirSync(aiDir, { recursive: true });
     const language = transcriptLanguage(project, folder);
     let done = 0;
+    let unanswered = 0;
     for (const [index, candidate] of candidates.entries()) {
       const file = path.join(aiDir, `candidate-${index}.json`);
+      // Cache entries carry their window, so answers never get matched to a different candidate.
+      const cached = readJsonOrNull(file);
       let clip;
-      if (fs.existsSync(file)) {
-        ({ clip } = JSON.parse(fs.readFileSync(file, "utf8")));
+      if (cached && cached.start === candidate.start && cached.end === candidate.end) {
+        ({ clip } = cached);
       } else {
         saveStage(project, { aiProgress: { done, total: candidates.length } });
         const lines = AI.buildLines(words, candidate.start, candidate.end);
         try {
           clip = lines.length ? AI.parseAnswer(await AI.askOllama(AI.buildPrompt(lines, { language })), lines) : null;
+          // Only real answers are cached (an unusable answer too, as null): a timeout or a crashed
+          // Ollama is retried on „Reia” instead of being remembered as "no moment here".
+          P.writeJsonAtomic(file, { start: candidate.start, end: candidate.end, clip });
         } catch (error) {
           console.warn(`[ai] candidatul ${index + 1}: ${error.message}`);
           clip = null;
+          unanswered += 1;
+          // Ollama gone: stop asking (each call would wait for its timeout) and let rules fill.
+          if (!(await AI.ollamaStatus()).ok) break;
         }
-        P.writeJsonAtomic(file, { clip });
       }
       if (clip) aiClips.push(clip);
       done += 1;
     }
     saveStage(project, { aiProgress: { done, total: candidates.length } });
-    if (!aiClips.length) note = "AI-ul n-a găsit momente potrivite";
+    if (!aiClips.length) note = candidates.length === 0 ? "videoclipul e prea scurt pentru AI" : unanswered ? "AI-ul nu a răspuns" : "AI-ul n-a găsit momente potrivite";
+    else if (unanswered) note = "AI-ul nu a răspuns la toate momentele";
     if (aiClips.length >= 2) await rankWithAi(project, aiDir, aiClips, words);
   }
-  const final = AI.pickFinal(aiClips, ruleClips);
+  // chooseFinal falls back to the rules if AI clips crowd them out (a permanent error here would
+  // delete the project, even a finished one on „Alege din nou cu AI”).
+  const final = AI.chooseFinal(aiClips, ruleClips);
   if (final.length < 3) throw permanent(new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente."));
   const source = await probe("source.mp4", folder);
   const captionOf = (clip) => (clip.entries

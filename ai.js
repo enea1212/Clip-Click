@@ -26,6 +26,9 @@ function buildLines(words, start, end) {
 }
 
 const MIN_CLIP = 20;
+// The 7b model picks ~20 s whatever the prompt says (measured: 20–26 s on TED with "aim for
+// 30–45 s"); short picks are widened by whole lines around its core to reach this when possible.
+const TARGET_MIN = 30;
 const MAX_CLIP = 50;
 const LEAD = 0.1;
 const TAIL = 0.2;
@@ -88,6 +91,13 @@ function parseAnswer(raw, lines) {
   let e = answer.end_line;
   if (!Number.isInteger(s) || !Number.isInteger(e) || s < 0 || e >= lines.length || s > e) return null;
   if (typeof answer.score !== "number" || !Number.isFinite(answer.score)) return null;
+  // Widen toward TARGET_MIN, never past MAX_CLIP (a line that would overshoot is not added).
+  for (let turn = 0; span(lines, s, e) < TARGET_MIN; turn += 1) {
+    const canNext = e + 1 < lines.length && span(lines, s, e + 1) <= MAX_CLIP;
+    const canPrev = s > 0 && span(lines, s - 1, e) <= MAX_CLIP;
+    if (!canNext && !canPrev) break;
+    if ((turn % 2 === 0 && canNext) || !canPrev) e += 1; else s -= 1;
+  }
   for (let turn = 0; span(lines, s, e) < MIN_CLIP; turn += 1) {
     const canNext = e + 1 < lines.length;
     const canPrev = s > 0;
@@ -167,7 +177,14 @@ function pickFinal(aiClips, ruleClips, count = 3) {
   return chosen.sort((a, b) => a.start - b.start);
 }
 
-// --- Ollama HTTP (local) ---------------------------------------------------------------
+// The final pick with a safety net: if AI clips overlap the rule picks so that fewer than `count`
+// remain, the rules alone (which had enough) are used — never fail where the rules would succeed.
+function chooseFinal(aiClips, ruleClips, count = 3) {
+  const final = pickFinal(aiClips, ruleClips, count);
+  return final.length < count ? pickFinal([], ruleClips, count) : final;
+}
+
+// --- Ollama HTTP (local)---------------------------------------------------------------
 
 const OLLAMA_URL = process.env.CLIPTREI_OLLAMA_URL || "http://127.0.0.1:11434";
 const MODEL = process.env.CLIPTREI_MODEL || "qwen2.5:7b";
@@ -201,4 +218,4 @@ async function askOllama(prompt, { url = OLLAMA_URL, model = MODEL, timeoutMs = 
   return result.response;
 }
 
-module.exports = { buildLines, buildPrompt, parseAnswer, buildRankPrompt, parseRanking, pickFinal, ollamaStatus, askOllama, ANSWER_SCHEMA, RANK_SCHEMA, MIN_CLIP, MAX_CLIP, MODEL };
+module.exports = { buildLines, buildPrompt, parseAnswer, buildRankPrompt, parseRanking, pickFinal, chooseFinal, ollamaStatus, askOllama, ANSWER_SCHEMA, RANK_SCHEMA, MIN_CLIP, MAX_CLIP, MODEL };

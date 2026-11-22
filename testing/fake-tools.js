@@ -1,7 +1,7 @@
 // Stand-in for yt-dlp, ffmpeg, ffprobe and transcribe.py in the server tests.
 // Usage (from proc.js when CLIPTREI_FAKE_TOOLS is set): node fake-tools.js <command> <args...>
 // Behaviour is steered by the JSON file in CLIPTREI_FAKE_CONTROL (re-read on every call):
-//   { duration, noSubs, noWhisper, downloadFails, transcribeFailOnce, slowDownloadMs }
+//   { duration, noSubs, noWhisper, downloadFails, transcribeFailOnce, slowDownloadMs, slowRenderMs }
 // Every call is appended to <control>.log so tests can check what ran.
 const fs = require("node:fs");
 const path = require("node:path");
@@ -87,6 +87,7 @@ if (command === "ffmpeg") {
     const length = args.includes("-t") ? Number(after("-t")) : duration - start;
     fs.writeFileSync(output, JSON.stringify({ start, length }));
   } else {
+    if (control.slowRenderMs && /short-\d+-\d+\.mp4$/.test(output)) sleep(control.slowRenderMs);
     fs.writeFileSync(output, "fake mp4");
   }
   process.exit(0);

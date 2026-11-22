@@ -29,6 +29,8 @@ const fakeOllama = http.createServer((req, res) => {
   req.on("data", (chunk) => { body += chunk; });
   req.on("end", () => {
     if (ollama.mode === "down") { res.writeHead(503); res.end(); return; }
+    // "dies-after-2": the model answers twice, then Ollama crashes (HTTP 500 from then on).
+    if (ollama.mode === "dies-after-2" && req.url === "/api/generate" && ollama.calls >= 2) { res.writeHead(500); res.end(); return; }
     res.writeHead(200, { "Content-Type": "application/json" });
     if (req.url === "/api/tags") { res.end(JSON.stringify({ models: [{ name: "qwen2.5:7b" }] })); return; }
     const request = JSON.parse(body);
@@ -305,4 +307,28 @@ test("Alege din nou cu AI: refused while Ollama is down (clips untouched), works
   assert.equal(redone.body.selection, "ai");
   assert.equal(calls().filter((line) => line.startsWith("python -m yt_dlp")).length, 0, "no re-download");
   for (const clip of made.body.clips) assert.equal(fs.existsSync(path.join(DATA, made.body.id, clip.video.split("/").pop())), false, "old clip files removed");
+});
+
+test("Ollama crashing mid-way: the unanswered candidates are not cached as failures", async () => {
+  ollama.mode = "dies-after-2"; ollama.calls = 0;
+  setControl({ duration: 900 });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  ollama.mode = "down";
+  assert.equal(status, 200, JSON.stringify(body));
+  const cached = fs.readdirSync(path.join(DATA, body.id, "ai")).filter((name) => name.startsWith("candidate-"));
+  assert.equal(cached.length, 2, `cached: ${cached}`);
+});
+
+test("Alege din nou cu AI is refused while a clip of the project is being re-rendered", async () => {
+  ollama.mode = "down";
+  setControl({ duration: 900 });
+  const made = await post("/api/process", { url: URL_A });
+  setControl({ duration: 900, slowRenderMs: 1500 });
+  const render = post("/api/render", { id: made.body.id, clip: 1, zoom: 0.5, satisfying: false });
+  await new Promise((r) => setTimeout(r, 300));
+  ollama.mode = "up";
+  const refused = await post(`/api/projects/${made.body.id}/rechoose`, {});
+  ollama.mode = "down";
+  assert.equal(refused.status, 409, JSON.stringify(refused.body));
+  assert.equal((await render).status, 200);
 });
