@@ -142,14 +142,23 @@ function removePublicFile(id, publicUrl) {
   try { fs.rmSync(path.join(folderOf(id), path.basename(publicUrl.split("?")[0])), { force: true }); } catch { /* still in use: leave it */ }
 }
 
-async function processVideo(rawUrl) {
+// Metadata only (no download): is there an original-language RO/EN track, and how long would
+// a full Whisper transcription take on this machine?
+async function inspectVideo(rawUrl) {
+  const url = safeUrl(rawUrl);
+  if (!url) throw new UserError("Te rog introdu un link https valid de YouTube.");
+  const info = JSON.parse(await run("python", ["-m", "yt_dlp", "--no-playlist", "--no-warnings", "--skip-download", "--dump-json", url], { windowsHide: true }));
+  return { title: info.title || "", duration: Number(info.duration) || 0, hasSubtitles: W.hasOriginalSubtitles(info), estimateMinutes: W.estimateMinutes(info.duration) };
+}
+
+async function processVideo(rawUrl, { transcribe = false } = {}) {
   const url = safeUrl(rawUrl);
   if (!url) throw new UserError("Te rog introdu un link https valid de YouTube.");
   const id = randomUUID();
   const folder = folderOf(id);
   fs.mkdirSync(folder, { recursive: true });
   try {
-    return await withLock(`${id}:process`, "Proiectul se procesează deja.", () => downloadAndBuild(id, folder, url));
+    return await withLock(`${id}:process`, "Proiectul se procesează deja.", () => downloadAndBuild(id, folder, url, transcribe === true));
   } catch (error) {
     // A failed run leaves nothing usable, possibly a multi-GB source: clean it up.
     try { fs.rmSync(folder, { recursive: true, force: true }); } catch { /* listed as incomplete; deletable later */ }
@@ -157,7 +166,7 @@ async function processVideo(rawUrl) {
   }
 }
 
-async function downloadAndBuild(id, folder, url) {
+async function downloadAndBuild(id, folder, url, transcribe) {
   const outputTemplate = path.join(folder, "source.%(ext)s");
   const printed = await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", "--write-auto-subs", "--write-subs", "--sub-langs", "ro,ro-orig,ro-RO,en,en-orig,en-US,en-GB", "--sub-format", "vtt/best", "-f", "bv*[height<=1080]+ba/b[height<=1080]", "--merge-output-format", "mp4", "-o", outputTemplate, "--print", "after_move:title", "--print", "after_move:filepath", url], { cwd: folder, windowsHide: true });
   const title = printed.split(/\r?\n/)[0]?.trim() || "Video fără titlu";
@@ -165,11 +174,20 @@ async function downloadAndBuild(id, folder, url) {
   const video = files.find((name) => /^source\.(mp4|mkv|webm)$/i.test(name));
   const captions = files.filter((name) => name.startsWith("source.") && name.endsWith(".vtt")).map((name) => ({ name, text: fs.readFileSync(path.join(folder, name), "utf8") }));
   if (!video) throw new UserError("YouTube nu a furnizat un fișier video compatibil.");
-  if (!captions.length) throw new UserError("Nu am găsit subtitrări pentru acest videoclip. În versiunea următoare putem adăuga transcriere audio.");
+  if (!transcribe && !captions.length) throw new UserError("Nu am găsit subtitrări pentru acest videoclip.");
   // render.js reads "source.mp4"; ffmpeg detects the real container from the content.
   if (video !== "source.mp4") fs.renameSync(path.join(folder, video), path.join(folder, "source.mp4"));
-  const track = pickCaptionTrack(captions);
-  const words = parseVttWords(captions.find((item) => item.name === track).text);
+  let track;
+  let words;
+  if (transcribe) {
+    // No original-language subtitles: transcribe the whole video (the user confirmed the estimate).
+    track = "whisper";
+    words = await whisperWords(folder, { wav: "full.wav" });
+    if (!words.length) throw new UserError("Whisper nu a găsit vorbire în acest videoclip.");
+  } else {
+    track = pickCaptionTrack(captions);
+    words = parseVttWords(captions.find((item) => item.name === track).text);
+  }
   fs.writeFileSync(path.join(folder, "words.json"), JSON.stringify(words), "utf8");
   const transcript = groupWords(words).map((group) => ({ start: group[0].start, end: group.at(-1).end, caption: group.map((item) => item.word).join(" ") }));
   const chosen = chooseClips(transcript);
@@ -186,7 +204,13 @@ async function downloadAndBuild(id, folder, url) {
     })),
   };
   for (const clip of project.clips) {
-    Object.assign(clip, await prepareClipWords(folder, clip, words));
+    if (transcribe) {
+      // Already Whisper words: no second transcription, just this clip's slice.
+      fs.writeFileSync(clipWordsFile(folder, clip.n), JSON.stringify(words.filter((word) => word.end > clip.start && word.start < clip.end)), "utf8");
+      clip.wordsSource = "whisper";
+    } else {
+      Object.assign(clip, await prepareClipWords(folder, clip, words));
+    }
     const clipWords = JSON.parse(fs.readFileSync(clipWordsFile(folder, clip.n), "utf8"));
     Object.assign(clip, await renderClip(project, clip, clipWords, { zoom: 1, split: false, cutPauses: clip.wordsSource === "whisper" }));
     const raw = `raw-${clip.n}.mp4`;
@@ -295,7 +319,11 @@ function sendJson(res, status, data) {
 
 async function handleApi(req, res, pathname) {
   const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
-  if (req.method === "POST" && pathname === "/api/process") return processVideo((await readJson(req)).url);
+  if (req.method === "POST" && pathname === "/api/inspect") return inspectVideo((await readJson(req)).url);
+  if (req.method === "POST" && pathname === "/api/process") {
+    const body = await readJson(req);
+    return processVideo(body.url, { transcribe: body.transcribe === true });
+  }
   if (req.method === "GET" && pathname === "/api/projects") return P.listProjects(DATA_DIR);
   if (projectMatch && !P.isValidId(projectMatch[1])) throw new UserError("Proiect invalid.");
   if (req.method === "GET" && projectMatch) return loadProject(projectMatch[1]);
