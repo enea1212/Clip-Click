@@ -33,4 +33,13 @@ function chooseClips(entries) {
   return chosen.sort((a, b) => a.start - b.start);
 }
 
-module.exports = { chooseClips, countHooks, scoreWindow };
+// The score is a heuristic (speech density + hook words), not a probability, so the UI shows
+// only the ranking: rank 1 = best score. Returns ranks in the clips' own (chronological) order.
+function rankClips(clips) {
+  const order = clips.map((clip, index) => ({ index, score: clip.score })).sort((a, b) => b.score - a.score);
+  const ranks = new Array(clips.length);
+  order.forEach((item, position) => { ranks[item.index] = position + 1; });
+  return ranks;
+}
+
+module.exports = { chooseClips, countHooks, scoreWindow, rankClips };

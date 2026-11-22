@@ -60,3 +60,11 @@ test("scoring: a two-word hook split across groups still counts", () => {
   const without = scoreWindow([entry("am plecat acasă", 1), entry("și era târziu", 3)], 0, 34);
   assert.ok(withHook > without);
 });
+
+const { rankClips } = require("../clips");
+
+test("rankClips: 1 = best score, keeps the chronological order of the clips", () => {
+  const clips = [{ start: 10, score: 2.1 }, { start: 200, score: 3.4 }, { start: 500, score: 1.2 }];
+  assert.deepEqual(rankClips(clips), [2, 1, 3]);
+  assert.deepEqual(rankClips([]), []);
+});

@@ -54,6 +54,8 @@ test("video with subtitles: 3 clips, Whisper timings per clip, pauses cut", asyn
   assert.equal(status, 200, JSON.stringify(body));
   assert.equal(body.status, "ready");
   assert.equal(body.clips.length, 3);
+  assert.deepEqual(body.clips.map((clip) => clip.rank).sort(), [1, 2, 3]);
+  assert.ok(body.clips.every((clip) => clip.score === undefined), "no invented percentage");
   for (const clip of body.clips) {
     assert.equal(clip.wordsSource, "whisper");
     assert.equal(clip.cutPauses, true);
