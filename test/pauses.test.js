@@ -21,7 +21,8 @@ test("segments: overlapping paddings merge, gap exactly 0.4 does not split", () 
 });
 
 test("segments: words straddling clip edges are clamped", () => {
-  const segs = speechSegments([w("x", 9.5, 10.3), w("y", 19.8, 20.6)], 10, 20);
+  // Mostly inside the clip (words mostly outside are dropped, see the sliver test below).
+  const segs = speechSegments([w("x", 9.9, 10.6), w("y", 19.5, 20.1)], 10, 20);
   assert.equal(segs[0].start, 0);
   assert.equal(segs.at(-1).end, 10);
   for (const s of segs) assert.ok(s.end > s.start);
@@ -45,4 +46,19 @@ test("remap: words move onto the cut timeline", () => {
 
 test("totalDuration sums segments", () => {
   assert.ok(Math.abs(totalDuration(speechSegments(WORDS, 100, 110)) - 1.8) < 1e-9);
+});
+
+test("segments: a sliver of a word mostly outside the clip is ignored (no flash at the start)", () => {
+  // Real case: "Why." 179.84–180.06 before a clip starting at 180, next word at 180.64.
+  const words = [w("Why.", 179.84, 180.06), w("And", 180.64, 180.9), w("then", 180.9, 181.2)];
+  const segs = speechSegments(words, 180, 214);
+  assert.equal(segs.length, 1);
+  assert.ok(Math.abs(segs[0].start - 0.54) < 1e-9, `starts at ${segs[0].start}`);
+  assert.deepEqual(remapWords(words, 180, segs).map((x) => x.word), ["And", "then"]);
+});
+
+test("segments: a word mostly inside the clip is kept even if it starts just before", () => {
+  const segs = speechSegments([w("long", 99.9, 100.8)], 100, 110);
+  assert.equal(segs.length, 1);
+  assert.equal(segs[0].start, 0);
 });

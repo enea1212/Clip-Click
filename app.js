@@ -85,6 +85,9 @@ form.addEventListener("submit", async (event) => {
   let estimate = 0;
   try {
     const info = await api("/api/inspect", { method: "POST", body: { url } });
+    if (!info.hasSubtitles && !info.whisperAvailable) {
+      throw new Error("Videoul nu are subtitrări, iar transcrierea locală nu e instalată. Instalează faster-whisper: python -m pip install --user faster-whisper");
+    }
     if (!info.hasSubtitles) {
       estimate = info.estimateMinutes;
       if (!confirm(`Videoul nu are subtitrări. Transcrierea pe calculatorul tău durează cam ${estimate} minute. Continui?`)) {

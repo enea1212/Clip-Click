@@ -1,10 +1,18 @@
 // Pause cutting: find the stretches of speech inside a clip and move words onto
 // the shortened timeline. All returned times are relative to the clip start.
 
+// A word that is mostly outside the clip (e.g. the tail of the previous sentence) is dropped,
+// otherwise its sliver becomes a tiny segment and a flashed subtitle at the clip edge.
+const MIN_INSIDE_SHARE = 0.5;
+
 function clipWords(words, clipStart, clipEnd) {
   const length = clipEnd - clipStart;
   return words
     .filter((word) => word.end > clipStart && word.start < clipEnd)
+    .filter((word) => {
+      const inside = Math.min(word.end, clipEnd) - Math.max(word.start, clipStart);
+      return inside >= MIN_INSIDE_SHARE * (word.end - word.start);
+    })
     .map((word) => ({ word: word.word, start: Math.max(0, word.start - clipStart), end: Math.min(length, word.end - clipStart) }))
     .filter((word) => word.end > word.start);
 }

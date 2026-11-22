@@ -69,3 +69,33 @@ test("audioArgs extracts 16 kHz mono wav for a range", () => {
   assert.ok(!whole.includes("-ss"));
   assert.ok(!whole.includes("-t"));
 });
+
+test("chunkPlan: 10-minute windows overlap 5 s on both sides of each seam", () => {
+  // Audio starts before keepFrom so a word that began just before the seam is heard whole
+  // (and dropped, it belongs to the previous window) instead of as a new truncated word.
+  assert.deepEqual(W.chunkPlan(1250, 600, 5), [
+    { start: 0, end: 605, keepFrom: 0, keepTo: 600 },
+    { start: 595, end: 1205, keepFrom: 600, keepTo: 1200 },
+    { start: 1195, end: 1250, keepFrom: 1200, keepTo: Infinity },
+  ]);
+  assert.deepEqual(W.chunkPlan(30, 600, 5), [{ start: 0, end: 30, keepFrom: 0, keepTo: Infinity }]);
+});
+
+test("mergeChunks keeps each word once, from the chunk that owns its start", () => {
+  const plan = W.chunkPlan(1250, 600, 5);
+  const merged = W.mergeChunks([
+    { chunk: plan[0], words: [{ word: "a", start: 10, end: 11 }, { word: "edge", start: 599.5, end: 600.4 }, { word: "dup", start: 601, end: 602 }] },
+    // Real seam case: the word started at 599.95, so the next window hears it whole and skips it.
+    { chunk: plan[1], words: [{ word: "edge", start: 599.5, end: 600.4 }, { word: "dup", start: 601, end: 602 }, { word: "b", start: 900, end: 901 }] },
+    { chunk: plan[2], words: [{ word: "c", start: 1210, end: 1211 }] },
+  ]);
+  assert.deepEqual(merged.map((x) => x.word), ["a", "edge", "dup", "b", "c"]);
+});
+
+test("trackLanguage reads the language of a subtitle track file name", () => {
+  assert.equal(W.trackLanguage("source.en-orig.vtt"), "en");
+  assert.equal(W.trackLanguage("source.ro.vtt"), "ro");
+  assert.equal(W.trackLanguage("source.ro-RO.vtt"), "ro");
+  assert.equal(W.trackLanguage("whisper"), null);
+  assert.equal(W.trackLanguage(undefined), null);
+});

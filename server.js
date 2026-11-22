@@ -2,7 +2,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const { spawn } = require("node:child_process");
+const { run } = require("./proc");
 const { randomUUID } = require("node:crypto");
 const { parseVttWords, groupWords, buildAss, pickCaptionTrack } = require("./subtitles");
 const { chooseClips } = require("./clips");
@@ -23,22 +23,6 @@ class UserError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
 
-function run(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true, ...options });
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk) => { stdout += chunk; });
-    child.stderr?.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) return resolve(stdout.trim());
-      const error = new Error(stderr.trim().split("\n").slice(-5).join("\n") || `${command} exited with ${code}`);
-      error.exitCode = code;
-      reject(error);
-    });
-  });
-}
 
 function safeUrl(raw) {
   try {
@@ -66,32 +50,63 @@ async function withLock(key, busyMessage, job) {
   try { return await job(); } finally { locks.release(key); }
 }
 
-// Transcribes [start, end] of source.mp4 (or the whole file) with local Whisper.
-async function whisperWords(folder, { start, end, wav }) {
+// Is faster-whisper importable? Checked before any download so a missing package
+// never costs a multi-GB download first.
+async function whisperAvailable() {
+  try {
+    await run("python", ["-c", "import faster_whisper"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Transcribes [start, end] of source.mp4 with local Whisper. `language` (e.g. "en") skips
+// auto-detection; returns the words (absolute times) and the language Whisper used.
+async function whisperWords(folder, { start, end, wav, language }) {
   await run("ffmpeg", W.audioArgs({ start, end, output: wav }), { cwd: folder });
   try {
-    const out = await run("python", [path.join(ROOT, "transcribe.py"), wav], { cwd: folder, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
-    return W.parseTranscript(out, start || 0);
+    const args = [path.join(ROOT, "transcribe.py"), wav, ...(language ? [language] : [])];
+    const out = await run("python", args, { cwd: folder, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+    return { words: W.parseTranscript(out, start || 0), language: JSON.parse(out).language || language || null };
   } catch (error) {
     if (error.exitCode === W.MISSING_EXIT_CODE) {
       const missing = new UserError(W.WHISPER_MISSING);
       missing.whisperMissing = true;
       throw missing;
     }
-    throw error;
+    if (error instanceof UserError) throw error;
+    throw new UserError(`Transcrierea Whisper a eșuat: ${error.message.split("\n").at(-1)}`);
   } finally {
     fs.rmSync(path.join(folder, wav), { force: true });
   }
 }
 
+// Whole video in 10-minute windows (bounded memory); the language detected on the first
+// window is reused so the whole transcript stays in one language.
+async function transcribeWholeVideo(folder, duration) {
+  const plan = W.chunkPlan(duration);
+  const results = [];
+  let language = null;
+  for (const [index, chunk] of plan.entries()) {
+    console.log(`[whisper] fragmentul ${index + 1}/${plan.length} (${Math.round(chunk.start / 60)}–${Math.round(chunk.end / 60)} min)`);
+    const result = await whisperWords(folder, { start: chunk.start, end: chunk.end, wav: `chunk-${index}.wav`, language });
+    language = language || result.language;
+    results.push({ chunk, words: result.words });
+  }
+  return W.mergeChunks(results);
+}
+
 const clipWordsFile = (folder, n) => path.join(folder, `words-${n}.json`);
 
 // Exact word timings for one clip: Whisper on the clip's audio, or the YouTube words as fallback.
-async function prepareClipWords(folder, clip, fallbackWords) {
+// The language comes from the subtitle track already chosen, so a 34 s clip with music
+// isn't detected as another language.
+async function prepareClipWords(folder, clip, fallbackWords, language) {
   let words = [];
   let wordsSource = "whisper";
   try {
-    words = await whisperWords(folder, { start: clip.start, end: clip.end, wav: `clip-${clip.n}.wav` });
+    ({ words } = await whisperWords(folder, { start: clip.start, end: clip.end, wav: `clip-${clip.n}.wav`, language }));
   } catch (error) {
     console.warn(`[whisper] clip ${clip.n}: ${error.message}`);
   }
@@ -148,12 +163,13 @@ async function inspectVideo(rawUrl) {
   const url = safeUrl(rawUrl);
   if (!url) throw new UserError("Te rog introdu un link https valid de YouTube.");
   const info = JSON.parse(await run("python", ["-m", "yt_dlp", "--no-playlist", "--no-warnings", "--skip-download", "--dump-json", url], { windowsHide: true }));
-  return { title: info.title || "", duration: Number(info.duration) || 0, hasSubtitles: W.hasOriginalSubtitles(info), estimateMinutes: W.estimateMinutes(info.duration) };
+  return { title: info.title || "", duration: Number(info.duration) || 0, hasSubtitles: W.hasOriginalSubtitles(info), estimateMinutes: W.estimateMinutes(info.duration), whisperAvailable: await whisperAvailable() };
 }
 
 async function processVideo(rawUrl, { transcribe = false } = {}) {
   const url = safeUrl(rawUrl);
   if (!url) throw new UserError("Te rog introdu un link https valid de YouTube.");
+  if (transcribe && !(await whisperAvailable())) throw new UserError(W.WHISPER_MISSING);
   const id = randomUUID();
   const folder = folderOf(id);
   fs.mkdirSync(folder, { recursive: true });
@@ -182,7 +198,7 @@ async function downloadAndBuild(id, folder, url, transcribe) {
   if (transcribe) {
     // No original-language subtitles: transcribe the whole video (the user confirmed the estimate).
     track = "whisper";
-    words = await whisperWords(folder, { wav: "full.wav" });
+    words = await transcribeWholeVideo(folder, (await probe("source.mp4", folder)).duration);
     if (!words.length) throw new UserError("Whisper nu a găsit vorbire în acest videoclip.");
   } else {
     track = pickCaptionTrack(captions);
@@ -209,7 +225,7 @@ async function downloadAndBuild(id, folder, url, transcribe) {
       fs.writeFileSync(clipWordsFile(folder, clip.n), JSON.stringify(words.filter((word) => word.end > clip.start && word.start < clip.end)), "utf8");
       clip.wordsSource = "whisper";
     } else {
-      Object.assign(clip, await prepareClipWords(folder, clip, words));
+      Object.assign(clip, await prepareClipWords(folder, clip, words, W.trackLanguage(track)));
     }
     const clipWords = JSON.parse(fs.readFileSync(clipWordsFile(folder, clip.n), "utf8"));
     Object.assign(clip, await renderClip(project, clip, clipWords, { zoom: 1, split: false, cutPauses: clip.wordsSource === "whisper" }));
@@ -267,7 +283,7 @@ async function rerender({ id, clip: n, zoom, satisfying, cutPauses }) {
     // Projects made before Whisper have no per-clip words yet: create them on the first render.
     if (!fs.existsSync(clipWordsFile(folder, n))) {
       const fallback = JSON.parse(fs.readFileSync(path.join(folder, "words.json"), "utf8"));
-      Object.assign(clip, await prepareClipWords(folder, clip, fallback));
+      Object.assign(clip, await prepareClipWords(folder, clip, fallback, W.trackLanguage(fresh.track)));
       P.updateClip(DATA_DIR, id, n, { wordsSource: clip.wordsSource });
     }
     const wantCut = typeof cutPauses === "boolean" ? cutPauses : clip.cutPauses === true;

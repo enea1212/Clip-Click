@@ -1,6 +1,7 @@
 """Local speech-to-text for ClipTrei.
 
-Usage: python transcribe.py <audio.wav>
+Usage: python transcribe.py <audio.wav> [language]
+(language, e.g. "ro" or "en", skips auto-detection when it is already known)
 Prints JSON to stdout: {"language": "en", "words": [{"word", "start", "end"}]}
 (times in seconds, relative to the audio file). Exits with code 3 when
 faster-whisper is not installed, so the server can show an install hint.
@@ -30,9 +31,10 @@ def read_wav(path):
 def main() -> int:
     # Romanian diacritics must survive the Windows console encoding.
     sys.stdout.reconfigure(encoding="utf-8")
-    if len(sys.argv) != 2:
-        print("usage: transcribe.py <audio.wav>", file=sys.stderr)
+    if len(sys.argv) not in (2, 3):
+        print("usage: transcribe.py <audio.wav> [language]", file=sys.stderr)
         return 2
+    language = sys.argv[2] if len(sys.argv) == 3 else None
     try:
         from faster_whisper import WhisperModel
     except ImportError:
@@ -40,7 +42,7 @@ def main() -> int:
         return MISSING_EXIT_CODE
 
     model = WhisperModel("small", device="cpu", compute_type="int8")
-    segments, info = model.transcribe(read_wav(sys.argv[1]), word_timestamps=True, vad_filter=True)
+    segments, info = model.transcribe(read_wav(sys.argv[1]), language=language, word_timestamps=True, vad_filter=True)
     words = [
         {"word": word.word, "start": round(word.start, 3), "end": round(word.end, 3)}
         for segment in segments

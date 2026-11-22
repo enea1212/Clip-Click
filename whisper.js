@@ -44,8 +44,35 @@ function hasOriginalSubtitles(info = {}) {
   return ["ro", "en"].includes(language) && auto.includes(language);
 }
 
+// Long audio is transcribed in windows (memory stays small on a 16 GB laptop). The audio of each
+// window reaches `overlap` seconds past both seams, so a word crossing a seam is heard whole in
+// both windows; it belongs to the window where it starts (keepFrom <= start < keepTo).
+// (Starting a window exactly at the seam made Whisper hear the cut-off word as a new one.)
+function chunkPlan(duration, size = 600, overlap = 5) {
+  const plan = [];
+  for (let keepFrom = 0; keepFrom < duration; keepFrom += size) {
+    const last = keepFrom + size >= duration;
+    plan.push({ start: Math.max(0, keepFrom - overlap), end: last ? duration : keepFrom + size + overlap, keepFrom, keepTo: last ? Infinity : keepFrom + size });
+  }
+  return plan.length ? plan : [{ start: 0, end: duration, keepFrom: 0, keepTo: Infinity }];
+}
+
+function mergeChunks(results) {
+  const words = [];
+  for (const { chunk, words: chunkWords } of results) {
+    for (const word of chunkWords) if (word.start >= chunk.keepFrom && word.start < chunk.keepTo) words.push(word);
+  }
+  return tidyTimings(words.sort((a, b) => a.start - b.start));
+}
+
+// "source.en-orig.vtt" -> "en"; anything else (e.g. "whisper") -> null.
+function trackLanguage(name) {
+  const match = /^source\.(ro|en)(?:-[A-Za-z]+)?\.vtt$/.exec(String(name || ""));
+  return match ? match[1] : null;
+}
+
 function estimateMinutes(durationSeconds) {
   return Math.max(1, Math.ceil((Number(durationSeconds) || 0) * FACTOR / 60));
 }
 
-module.exports = { FACTOR, WHISPER_MISSING, MISSING_EXIT_CODE, audioArgs, parseTranscript, hasOriginalSubtitles, estimateMinutes };
+module.exports = { FACTOR, WHISPER_MISSING, MISSING_EXIT_CODE, audioArgs, parseTranscript, hasOriginalSubtitles, estimateMinutes, chunkPlan, mergeChunks, trackLanguage };
