@@ -128,7 +128,9 @@ async function prepareClipWords(folder, clip, fallbackWords, language) {
     console.warn(`[whisper] clip ${clip.n}: ${error.message}`);
   }
   if (!words.length) {
-    wordsSource = "youtube";
+    // Missing faster-whisper is not a final verdict: leave the source unset (like projects from
+    // before Whisper) so the UI keeps offering „Taie pauzele” and the next Apply tries Whisper.
+    wordsSource = whisperMissing ? undefined : "youtube";
     words = fallbackWords.filter((word) => word.end > clip.start && word.start < clip.end);
   }
   // Without faster-whisper the YouTube fallback is not saved: once Whisper is installed, the next
@@ -153,7 +155,7 @@ async function renderClip(project, clip, words, { zoom, split, cutPauses = false
   let duration = clip.end - clip.start;
   let ass = buildAss(words, clip.start, clip.end, { split });
   if (cutPauses) {
-    const found = snapSegments(speechSegments(words, clip.start, clip.end), project.fps);
+    const found = snapSegments(speechSegments(words, clip.start, clip.end), project.fps, clip.end - clip.start);
     if (found.length) {
       segments = found;
       duration = totalDuration(found);
@@ -237,7 +239,10 @@ async function runPipeline(id, { firstRun }) {
     const project = loadProject(id);
     try {
       // Leftovers of a crash: temporary audio, half-written or superseded clips.
-      for (const name of leftoverFiles(project, fs.readdirSync(folder))) fs.rmSync(path.join(folder, name), { force: true });
+      // A file held open by another app (e.g. a media player) just stays; it must not block „Reia”.
+      for (const name of leftoverFiles(project, fs.readdirSync(folder))) {
+        try { fs.rmSync(path.join(folder, name), { force: true }); } catch { /* in use: try next time */ }
+      }
       const filesNow = () => new Set(fs.readdirSync(folder));
       let plan = resumePlan(project, filesNow());
 

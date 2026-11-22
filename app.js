@@ -30,8 +30,9 @@ async function api(url, options = {}) {
 let viewToken = 0;
 
 // While something is processing, re-run `reload` every 5 s as long as the user stays on this view.
-function refreshWhileOpen(reload) {
-  const token = viewToken;
+// `token` must be the viewToken taken right after the view was opened (before any await):
+// if the user left meanwhile, the refresh never runs.
+function refreshWhileOpen(reload, token) {
   setTimeout(() => { if (token === viewToken) reload(); }, 5000);
 }
 
@@ -64,16 +65,18 @@ async function route() {
 
 async function openProject(id) {
   showView("results");
+  const token = viewToken;
   $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
   $("#video-label").textContent = "";
   showMessage("loading", "Se încarcă proiectul", "");
   try {
     const project = await api(`/api/projects/${id}`);
+    if (token !== viewToken) return;
     if (project.status && project.status !== "ready") {
       $("#video-label").textContent = project.title || "";
       return project.status === "failed"
         ? showMessage("error", "Proiect incomplet", `${project.error || ""} Îl poți relua din „Proiectele mele” cu „Reia”.`)
-        : (showMessage("loading", "Proiectul se procesează", STAGE_LABELS[project.status] || ""), refreshWhileOpen(() => openProject(id)));
+        : (showMessage("loading", "Proiectul se procesează", STAGE_LABELS[project.status] || ""), refreshWhileOpen(() => openProject(id), token));
     }
     renderProject(project);
   } catch (error) {
@@ -163,13 +166,15 @@ window.addEventListener("hashchange", route);
 
 async function showProjects() {
   showView("projects");
+  const token = viewToken;
   const list = $("#project-list");
   list.innerHTML = `<div class="processing-state"><div class="loader"></div><strong>Se încarcă proiectele</strong></div>`;
   try {
     const projects = await api("/api/projects");
+    if (token !== viewToken) return;
     if (!projects.length) { list.innerHTML = `<p class="empty-list">Nu ai încă proiecte.</p>`; return; }
     list.innerHTML = projects.map(projectRow).join("");
-    if (projects.some((item) => STAGE_LABELS[item.status])) refreshWhileOpen(showProjects);
+    if (projects.some((item) => STAGE_LABELS[item.status])) refreshWhileOpen(showProjects, token);
   } catch (error) {
     list.innerHTML = `<div class="processing-error"><strong>Nu am putut încărca proiectele</strong><span>${escapeHtml(error.message)}</span></div>`;
   }

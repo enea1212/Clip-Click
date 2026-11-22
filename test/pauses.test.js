@@ -66,7 +66,14 @@ test("segments: a word mostly inside the clip is kept even if it starts just bef
 const { snapSegments } = require("../pauses");
 
 test("snapSegments: segment edges land on video frames so captions don't drift", () => {
-  const snapped = snapSegments([{ start: 0.51, end: 2.13 }, { start: 2.9, end: 3.52 }], 25);
-  assert.deepEqual(snapped, [{ start: 0.52, end: 2.12 }, { start: 2.92, end: 3.52 }]);
-  assert.deepEqual(snapSegments([{ start: 0.51, end: 2.13 }], 0), [{ start: 0.51, end: 2.13 }], "unknown fps: unchanged");
+  // Edges move outward to whole frames (never into the speech), so nothing spoken is cut.
+  const snapped = snapSegments([{ start: 0.51, end: 2.13 }, { start: 2.9, end: 3.52 }], 25, 34);
+  assert.deepEqual(snapped, [{ start: 0.48, end: 2.16 }, { start: 2.88, end: 3.52 }]);
+  assert.deepEqual(snapSegments([{ start: 0.51, end: 2.13 }], 0, 34), [{ start: 0.51, end: 2.13 }], "unknown fps: unchanged");
+});
+
+test("snapSegments at very low fps keeps all speech: segments widen, merge, stay inside the clip", () => {
+  assert.deepEqual(snapSegments([{ start: 0.6, end: 1.2 }, { start: 1.9, end: 2.5 }], 1, 34), [{ start: 0, end: 3 }]);
+  assert.deepEqual(snapSegments([{ start: 32.5, end: 33.7 }], 1, 34), [{ start: 32, end: 34 }]);
+  assert.deepEqual(snapSegments([{ start: 33.2, end: 33.9 }], 2, 33.9), [{ start: 33, end: 33.9 }], "never past the clip end");
 });

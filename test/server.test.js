@@ -161,7 +161,8 @@ test("without faster-whisper, YouTube timings are used but not locked in for lat
   setControl({ duration: 900, noWhisper: true });
   const { status, body } = await post("/api/process", { url: URL_A });
   assert.equal(status, 200, JSON.stringify(body));
-  assert.ok(body.clips.every((clip) => clip.wordsSource === "youtube" && clip.cutPauses === false));
+  // Not marked "youtube": the UI must still offer „Taie pauzele”, so the next Apply can try Whisper.
+  assert.ok(body.clips.every((clip) => clip.wordsSource === undefined && clip.cutPauses === false), JSON.stringify(body.clips.map((c) => c.wordsSource)));
   assert.equal(fs.existsSync(path.join(DATA, body.id, "words-1.json")), false);
   setControl({ duration: 900 });
   const render = await post("/api/render", { id: body.id, clip: 1, zoom: 1, satisfying: false, cutPauses: true });
