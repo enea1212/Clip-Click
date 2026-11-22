@@ -18,7 +18,11 @@ function escapeHtml(value) {
 async function api(url, options = {}) {
   const response = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options, body: options.body ? JSON.stringify(options.body) : undefined });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Cererea a eșuat.");
+  if (!response.ok) {
+    const error = new Error(data.error || "Cererea a eșuat.");
+    error.resumable = data.resumable === true;
+    throw error;
+  }
   return data;
 }
 
@@ -56,7 +60,14 @@ async function openProject(id) {
   $("#video-label").textContent = "";
   showMessage("loading", "Se încarcă proiectul", "");
   try {
-    renderProject(await api(`/api/projects/${id}`));
+    const project = await api(`/api/projects/${id}`);
+    if (project.status && project.status !== "ready") {
+      $("#video-label").textContent = project.title || "";
+      return project.status === "failed"
+        ? showMessage("error", "Proiect incomplet", `${project.error || ""} Îl poți relua din „Proiectele mele” cu „Reia”.`)
+        : showMessage("loading", "Proiectul se procesează", STAGE_LABELS[project.status] || "");
+    }
+    renderProject(project);
   } catch (error) {
     const legacy = (await api("/api/projects").catch(() => [])).find((item) => item.id === id && item.legacy);
     if (legacy) return renderLegacy(legacy);
@@ -121,7 +132,11 @@ form.addEventListener("submit", async (event) => {
     history.pushState(null, "", `#/p/${project.id}`);
     renderProject(project);
   } catch (error) {
-    if (token === viewToken) showMessage("error", "Nu am putut procesa videoclipul", error.message);
+    if (token === viewToken) {
+      showMessage("error", "Nu am putut procesa videoclipul", error.resumable
+        ? `${error.message} Ce s-a făcut până acum e păstrat: proiectul e în „Proiectele mele” și îl poți relua de acolo cu „Reia”.`
+        : error.message);
+    }
   } finally {
     button.disabled = false;
     label.textContent = originalLabel;
@@ -145,24 +160,58 @@ async function showProjects() {
   try {
     const projects = await api("/api/projects");
     if (!projects.length) { list.innerHTML = `<p class="empty-list">Nu ai încă proiecte.</p>`; return; }
-    list.innerHTML = projects.map((item) => `
-      <div class="project-row" data-id="${escapeHtml(item.id)}">
-        <div class="project-main">
-          <strong>${escapeHtml(item.legacy ? "Proiect vechi" : item.title)}</strong>
-          <span>${escapeHtml(new Date(item.createdAt).toLocaleString("ro-RO"))} · ${item.legacy ? (item.clipCount ? "doar vizionare" : "incomplet — doar ștergere") : `${item.clipCount} clipuri`}</span>
-        </div>
-        <button class="text-button open-project">Deschide</button>
-        <button class="text-button danger delete-project">Șterge</button>
-      </div>`).join("");
+    list.innerHTML = projects.map(projectRow).join("");
   } catch (error) {
     list.innerHTML = `<div class="processing-error"><strong>Nu am putut încărca proiectele</strong><span>${escapeHtml(error.message)}</span></div>`;
   }
+}
+
+const STAGE_LABELS = {
+  downloading: "Se descarcă videoclipul…",
+  transcribing: "Se transcrie cu Whisper…",
+  rendering: "Se randează clipurile…",
+};
+
+function projectRow(item) {
+  const date = escapeHtml(new Date(item.createdAt).toLocaleString("ro-RO"));
+  const title = escapeHtml(item.legacy ? "Proiect vechi" : item.title || "Video în curs de descărcare");
+  let detail;
+  let buttons = `<button class="text-button open-project">Deschide</button><button class="text-button danger delete-project">Șterge</button>`;
+  if (item.legacy) {
+    detail = item.clipCount ? "doar vizionare" : "incomplet — doar ștergere";
+  } else if (item.status === "failed") {
+    detail = `incomplet — ${escapeHtml(item.error || "procesarea s-a oprit")}`;
+    buttons = `<button class="text-button resume-project">Reia</button><button class="text-button danger delete-project">Șterge</button>`;
+  } else if (item.status && item.status !== "ready") {
+    detail = escapeHtml(STAGE_LABELS[item.status] || "se procesează…");
+    buttons = "";
+  } else {
+    detail = `${item.clipCount} clipuri`;
+  }
+  return `
+    <div class="project-row${item.status === "failed" ? " incomplete" : ""}" data-id="${escapeHtml(item.id)}">
+      <div class="project-main"><strong>${title}</strong><span>${date} · ${detail}</span></div>
+      ${buttons}
+    </div>`;
 }
 
 $("#project-list").addEventListener("click", async (event) => {
   const row = event.target.closest(".project-row");
   if (!row) return;
   if (event.target.closest(".open-project")) location.hash = `#/p/${row.dataset.id}`;
+  const resume = event.target.closest(".resume-project");
+  if (resume) {
+    resume.disabled = true;
+    resume.textContent = "Se reia…";
+    try {
+      await api(`/api/projects/${row.dataset.id}/resume`, { method: "POST", body: {} });
+      location.hash = `#/p/${row.dataset.id}`;
+    } catch (error) {
+      alert(error.message);
+      showProjects();
+    }
+    return;
+  }
   if (event.target.closest(".delete-project")) {
     if (!confirm("Ștergi proiectul și toate fișierele lui? Nu se poate anula.")) return;
     try {

@@ -62,7 +62,7 @@ function listProjects(dataDir) {
       if (!isValidId(id) || !fs.statSync(folder).isDirectory()) continue;
       const project = readProject(dataDir, id);
       if (project) {
-        items.push({ id, title: project.title, createdAt: project.createdAt, clipCount: project.clips.length, legacy: false });
+        items.push({ id, title: project.title, createdAt: project.createdAt, clipCount: project.clips.length, legacy: false, status: project.status, error: project.error });
         continue;
       }
       // Older or unfinished folders can't be edited (no saved start times), but must stay visible
