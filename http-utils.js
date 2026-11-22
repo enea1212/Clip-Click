@@ -26,4 +26,23 @@ function parseRange(header, size) {
   return start < size && start <= end ? { start, end } : "invalid";
 }
 
-module.exports = { resolveStatic, decodePath, parseRange };
+// Blocks requests that don't come from this app's own pages:
+// - Host must be this server (also stops DNS-rebinding tricks);
+// - changing requests (POST/DELETE) with an Origin must come from this server's own page
+//   (browsers always send Origin there; tools like curl send none and are allowed);
+// - POST must be JSON, so a cross-site form or text/plain fetch can't slip past without a preflight.
+// Returns null when the request is fine, otherwise { status, message }.
+function checkRequest(method, headers, port) {
+  const allowed = [`localhost:${port}`, `127.0.0.1:${port}`];
+  if (!allowed.includes(String(headers.host || "").toLowerCase())) return { status: 403, message: "Acces refuzat." };
+  if (method === "GET" || method === "HEAD") return null;
+  if (headers.origin && !allowed.map((host) => `http://${host}`).includes(String(headers.origin).toLowerCase())) {
+    return { status: 403, message: "Acces refuzat." };
+  }
+  if (method === "POST" && !/^application\/json(\s*;|$)/i.test(String(headers["content-type"] || ""))) {
+    return { status: 415, message: "Cererea trebuie să fie JSON." };
+  }
+  return null;
+}
+
+module.exports = { resolveStatic, decodePath, parseRange, checkRequest };

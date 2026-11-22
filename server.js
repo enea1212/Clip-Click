@@ -8,7 +8,7 @@ const { parseVttWords, groupWords, buildAss, pickCaptionTrack } = require("./sub
 const { chooseClips } = require("./clips");
 const { clipArgs, rawPreviewArgs, satPreviewArgs, probeArgs, parseProbe } = require("./render");
 const P = require("./projects");
-const { resolveStatic, decodePath, parseRange } = require("./http-utils");
+const { resolveStatic, decodePath, parseRange, checkRequest } = require("./http-utils");
 const W = require("./whisper");
 const { speechSegments, remapWords, totalDuration } = require("./pauses");
 
@@ -359,6 +359,13 @@ async function handleApi(req, res, pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const refused = checkRequest(req.method, req.headers, PORT);
+  if (refused) {
+    console.warn(`[blocat] ${req.method} ${req.url} host=${req.headers.host} origin=${req.headers.origin || "-"}`);
+    sendJson(res, refused.status, { error: refused.message });
+    req.resume();
+    return;
+  }
   const pathname = decodePath(new URL(req.url, "http://localhost").pathname);
   if (pathname === null) { res.writeHead(400); res.end("Bad request"); return; }
   if (pathname.startsWith("/api/")) {
