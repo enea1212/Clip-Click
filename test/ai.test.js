@@ -48,3 +48,65 @@ test("buildLines: only words inside the window", () => {
   const lines = A.buildLines([w("out", 5, 5.5), w("in", 10, 10.4), w("late", 50, 50.3)], 10, 40);
   assert.deepEqual(lines.map((l) => l.text), ["in"]);
 });
+
+// 12 lines of 4 s each starting at 100 s (line i: 100+4i .. 103.5+4i).
+const LINES = Array.from({ length: 12 }, (_, i) => ({ i, start: 100 + 4 * i, end: 103.5 + 4 * i, text: `line ${i}` }));
+
+test("buildPrompt: numbered lines with mm:ss, the 20–50 s rule and the reply fields", () => {
+  const prompt = A.buildPrompt(LINES);
+  assert.match(prompt, /\[0\] 01:40 line 0/);
+  assert.match(prompt, /\[11\] 02:24 line 11/);
+  assert.match(prompt, /20.*50 seconds/);
+  for (const field of ["start_line", "end_line", "score", "title", "reason", "kind"]) assert.match(prompt, new RegExp(field));
+  assert.deepEqual(A.ANSWER_SCHEMA.required.sort(), ["end_line", "kind", "reason", "score", "start_line", "title"]);
+});
+
+test("parseAnswer: a valid answer becomes a clip on line boundaries", () => {
+  const clip = A.parseAnswer({ kind: "podcast", score: 8, start_line: 2, end_line: 7, title: " Big idea ", reason: "Idee clară" }, LINES);
+  assert.deepEqual(clip, { kind: "podcast", score: 8, start: 107.9, end: 131.7, title: "Big idea", reason: "Idee clară" });
+});
+
+test("parseAnswer: out of range, reversed or malformed answers are rejected", () => {
+  for (const bad of [
+    { kind: "podcast", score: 8, start_line: -1, end_line: 5, title: "t", reason: "r" },
+    { kind: "podcast", score: 8, start_line: 3, end_line: 20, title: "t", reason: "r" },
+    { kind: "podcast", score: 8, start_line: 7, end_line: 2, title: "t", reason: "r" },
+    { kind: "podcast", score: "great", start_line: 1, end_line: 6, title: "t", reason: "r" },
+    null, "not json",
+  ]) assert.equal(A.parseAnswer(bad, LINES), null, JSON.stringify(bad));
+});
+
+test("parseAnswer: too short is widened to ≥ 20 s, too long trimmed to ≤ 50 s, by whole lines", () => {
+  const short = A.parseAnswer({ kind: "stream", score: 6, start_line: 5, end_line: 5, title: "t", reason: "r" }, LINES);
+  assert.ok(short.end - short.start >= 20 && short.end - short.start <= 50, `${short.end - short.start}`);
+  const long = A.parseAnswer({ kind: "stream", score: 6, start_line: 0, end_line: 11, title: "t", reason: "r" }, LINES);
+  assert.ok(long.end - long.start <= 50 && long.end - long.start >= 20, `${long.end - long.start}`);
+  const tiny = [{ i: 0, start: 0, end: 3, text: "only" }];
+  assert.equal(A.parseAnswer({ kind: "stream", score: 6, start_line: 0, end_line: 0, title: "t", reason: "r" }, tiny), null, "cannot reach 20 s");
+});
+
+test("parseAnswer: score clamped to 0–10, unknown kind becomes other, long texts cut", () => {
+  const clip = A.parseAnswer({ kind: "music", score: 14, start_line: 0, end_line: 6, title: "x".repeat(300), reason: "y".repeat(300) }, LINES);
+  assert.equal(clip.score, 10);
+  assert.equal(clip.kind, "other");
+  assert.ok(clip.title.length <= 100 && clip.reason.length <= 160);
+});
+
+test("pickFinal: AI clips first by score, no overlaps, rules fill the rest, ranks 1–3", () => {
+  const ai = [
+    { start: 100, end: 130, score: 6, title: "B", reason: "rb", kind: "stream" },
+    { start: 300, end: 340, score: 9, title: "A", reason: "ra", kind: "stream" },
+    { start: 310, end: 345, score: 8, title: "overlaps A", reason: "x", kind: "stream" },
+  ];
+  const rules = [{ start: 120, end: 154, score: 5 }, { start: 500, end: 534, score: 3 }, { start: 700, end: 734, score: 4 }];
+  const final = A.pickFinal(ai, rules);
+  assert.deepEqual(final.map((c) => [c.start, c.source, c.rank]), [[100, "ai", 2], [300, "ai", 1], [700, "reguli", 3]]);
+  assert.equal(final[0].title, "B");
+  assert.equal(final[2].title, undefined);
+});
+
+test("pickFinal: no AI answers → three rule clips", () => {
+  const rules = [{ start: 0, end: 34, score: 1 }, { start: 100, end: 134, score: 3 }, { start: 200, end: 234, score: 2 }];
+  const final = A.pickFinal([], rules);
+  assert.deepEqual(final.map((c) => [c.start, c.source, c.rank]), [[0, "reguli", 3], [100, "reguli", 1], [200, "reguli", 2]]);
+});
