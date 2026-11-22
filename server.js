@@ -17,8 +17,9 @@ const { resumePlan, missingChunks, normalizeStatus, keepForResume } = require(".
 const permanent = (error) => Object.assign(error, { permanent: true });
 
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, "data");
-const SATISFYING_DIR = path.join(ROOT, "satisfying");
+// Overridable only so the automated tests never touch the real projects.
+const DATA_DIR = process.env.CLIPTREI_DATA_DIR || path.join(ROOT, "data");
+const SATISFYING_DIR = process.env.CLIPTREI_SATISFYING_DIR || path.join(ROOT, "satisfying");
 const PORT = Number(process.env.PORT || 4173);
 const MIME = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mp4": "video/mp4", ".json": "application/json; charset=utf-8" };
 fs.mkdirSync(DATA_DIR, { recursive: true });

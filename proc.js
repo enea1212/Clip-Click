@@ -4,6 +4,9 @@ const { spawn } = require("node:child_process");
 // decoded once at the end, so a multi-byte UTF-8 character (ș, ț, ă…) split across two pipe
 // chunks is never corrupted. On failure the error carries the exit code and the stderr tail.
 function run(command, args, options = {}) {
+  // Tests only: route yt-dlp/ffmpeg/ffprobe/python through a fake script (see testing/fake-tools.js).
+  const fake = process.env.CLIPTREI_FAKE_TOOLS;
+  if (fake) [command, args] = [process.execPath, [fake, command, ...args]];
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { windowsHide: true, ...options });
     const out = [];
