@@ -13,6 +13,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **Taie pauzele**: clipul rămâne mai scurt, nu se completează la loc. Funcționează doar cu timpi de la Whisper (decizia lui Claude: timpii YouTube nu arată tăcerile).
 - **Fără anulare** pentru transcrierea lungă: procesarea merge până la capăt, iar proiectul apare în listă.
 - **Un singur video procesat odată**: al doilea e refuzat cu mesaj, fără coadă (A). Procesarea căzută sau întreruptă se reia manual cu „Reia”, nu automat.
+- **Momente alese cu AI local** (Ollama `qwen2.5:7b`, gratuit, A), pentru streamuri și podcasturi (C), lungime naturală 20–50 s la limită de frază (A, lărgită în cod la ≥ 30 s), 10 candidați (B), preselecție după reguli + AI (1). Fără Ollama → reguli, fără eroare.
 - Git: repo `enea1212/Clip-Click` (public), branch `main`. **Commit și push la final de funcționalitate. De acum, fiecare funcționalitate nouă pe branch-ul ei.**
 - Conversația cu Claude se ține în română.
 
@@ -27,7 +28,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `subtitles.js`: VTT → cuvinte, grupare, fișier `.ass` karaoke. `clips.js`: alegerea celor 3 momente. `pauses.js`: segmente de vorbire și mutarea cuvintelor pe cronologia tăiată.
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
 - `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
-- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `test/`: testele (106, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
+- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `test/`: testele (132, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
 
@@ -52,11 +53,14 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **PR-uri înlănțuite pe GitHub:** la merge cu ștergerea branch-ului, PR-ul următor (care avea branch-ul șters ca bază) e **închis**, nu mutat. Mută întâi PR-urile de deasupra pe `main` (`gh pr edit N --base main`), apoi dă merge, și abia la final șterge branch-urile.
 - **Teste de server:** `CLIPTREI_FAKE_TOOLS` (unelte false din `testing/fake-tools.js`) și `CLIPTREI_DATA_DIR` / `CLIPTREI_SATISFYING_DIR` (foldere temporare). Fișierele din `test/` sunt toate tratate ca teste de `node --test`, de-asta scriptul fals stă în `testing/`.
 - Shell-ul rămas într-un folder din `data/` blochează ștergerea lui pe Windows (EBUSY).
+- Modelul `qwen2.5:7b`: notat separat dă aceeași notă (7/10) tuturor candidaților → runda de clasare comparativă decide; ignoră cererea de lungime → lărgire în cod; amestecă limbile dacă nu i le spui explicit. Testele de server folosesc mereu un Ollama fals (`CLIPTREI_OLLAMA_URL`): nu apelează niciodată modelul real.
 - Browserul ținea `ui.css` vechi în cache. Fișierele aplicației se servesc acum cu `Cache-Control: no-cache`.
 
 ## Unde am rămas
 Funcționalitatea Whisper + tăierea pauzelor e **gata**: toate task-urile, review-ul final și reparațiile lui au commit și sunt urcate pe `main`. Probleme mici amânate: drift de până la un cadru pe segment tăiat, coduri de limbă nealiniate între `/api/inspect` și `--sub-langs`, VTT descărcate inutil la `transcribe: true`. Lista completă e în `.superpowers/sdd/2026-11-22-whisper-pauses/progress.md`.
 
-Robustețea e în `main` (PR #1–#3: protecție cereri, un singur video, „Reia”). Pe PR-uri înlănțuite: #4 `test/procesare-server` (teste end-to-end cu unelte false), #5 `fix/rang-in-loc-de-procent` („LOCUL n DIN 3”), #6 `fix/probleme-mici`. Merge în ordinea 4 → 5 → 6, **mutând fiecare PR pe `main` înainte de a-l da pe cel de dedesubt** (vezi Capcane).
+Robustețea, testele end-to-end, „LOCUL n DIN 3” și problemele mici sunt în `main` (PR #1–#6).
 
-Următorul pas mare propus: alegerea momentelor cu AI în loc de euristica cu cuvinte cheie.
+**Alegerea momentelor cu AI** e pe branch-ul `feature/ai-momente`, cu PR deschis: Ollama `qwen2.5:7b` notează 10 candidați preselectați de reguli, apoi o rundă de clasare comparativă; titlu + motiv pe card; rezervă pe reguli; „Alege din nou cu AI”. Măsurat pe TED: ~60 s/candidat, total 464 s. Probleme amânate: fără limită totală de timp pentru etapa AI; ecranul „Alege din nou” fără progres. Detalii: `.superpowers/sdd/2026-11-22-ai-momente/progress.md`.
+
+Următorul pas: merge la PR-ul AI, apoi un test pe un stream de gaming real.
