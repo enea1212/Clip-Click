@@ -12,6 +12,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **Whisper local (`faster-whisper`)**, nu API plătit, în două feluri: (a) mereu pe cele 3 clipuri, pentru timpi exacți; (b) pe tot videoul când nu există subtitrări originale, după confirmare cu estimarea de timp.
 - **Taie pauzele**: clipul rămâne mai scurt, nu se completează la loc. Funcționează doar cu timpi de la Whisper (decizia lui Claude: timpii YouTube nu arată tăcerile).
 - **Fără anulare** pentru transcrierea lungă: procesarea merge până la capăt, iar proiectul apare în listă.
+- **Un singur video procesat odată**: al doilea e refuzat cu mesaj, fără coadă (A). Procesarea căzută sau întreruptă se reia manual cu „Reia”, nu automat.
 - Git: repo `enea1212/Clip-Click` (public), branch `main`. **Commit și push la final de funcționalitate. De acum, fiecare funcționalitate nouă pe branch-ul ei.**
 - Conversația cu Claude se ține în română.
 
@@ -26,7 +27,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `subtitles.js`: VTT → cuvinte, grupare, fișier `.ass` karaoke. `clips.js`: alegerea celor 3 momente. `pauses.js`: segmente de vorbire și mutarea cuvintelor pe cronologia tăiată.
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
 - `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
-- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `test/`: testele (74).
+- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `test/`: testele (86).
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
 
@@ -53,7 +54,6 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 ## Unde am rămas
 Funcționalitatea Whisper + tăierea pauzelor e **gata**: toate task-urile, review-ul final și reparațiile lui au commit și sunt urcate pe `main`. Probleme mici amânate: drift de până la un cadru pe segment tăiat, coduri de limbă nealiniate între `/api/inspect` și `--sub-langs`, VTT descărcate inutil la `transcribe: true`. Lista completă e în `.superpowers/sdd/2026-11-22-whisper-pauses/progress.md`.
 
-Următoarele, **fiecare pe branch-ul ei**, din critica de pe dashboard:
-1. Procesarea lungă să nu mai șteargă tot la eroare: salvare pe etape și reluare.
-2. Un singur job greu activ (acum blocarea e per UUID nou, deci două click-uri pornesc două transcrieri).
-3. Protecție contra cererilor de la alte site-uri: `Content-Type` și `Origin`.
+Robustețea (critica de pe dashboard, punctele 1–3) e făcută pe trei branch-uri înlănțuite, cu PR-uri pe GitHub: #1 `fix/protectie-cereri` (Host/Origin/JSON), #2 `feature/un-singur-job` (409 la al doilea video), #3 `feature/reluare-procesare` (etape salvate, „Reia”, bucăți de transcriere reluabile). Merge în ordinea 1 → 2 → 3. Probleme mici amânate: `.superpowers/sdd/2026-11-22-robustete/progress.md`.
+
+Rămase din critică: teste automate pentru orchestrarea din `server.js` (`runPipeline`); procentul „POTENTIAL” inventat (de înlocuit cu un rang până la validare).
