@@ -78,14 +78,41 @@ form.addEventListener("submit", async (event) => {
   const label = $("span", button);
   const originalLabel = label.textContent;
   button.disabled = true;
+  const url = urlInput.value.trim();
+  // First a quick metadata check: videos without original subtitles need a (long) local transcription.
+  label.textContent = "Verific videoclipul…";
+  let transcribe = false;
+  let estimate = 0;
+  try {
+    const info = await api("/api/inspect", { method: "POST", body: { url } });
+    if (!info.hasSubtitles) {
+      estimate = info.estimateMinutes;
+      if (!confirm(`Videoul nu are subtitrări. Transcrierea pe calculatorul tău durează cam ${estimate} minute. Continui?`)) {
+        button.disabled = false;
+        label.textContent = originalLabel;
+        return;
+      }
+      transcribe = true;
+    }
+  } catch (error) {
+    button.disabled = false;
+    label.textContent = originalLabel;
+    showView("results");
+    showMessage("error", "Nu am putut verifica videoclipul", error.message);
+    return;
+  }
   label.textContent = "Analizez videoclipul...";
   showView("results");
   $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
-  $("#video-label").textContent = "Descarcăm video-ul, analizăm subtitrările și randăm clipurile.";
-  showMessage("loading", "Pregătim cele 3 Shorts", "Poate dura câteva minute, în funcție de lungimea videoclipului.");
+  $("#video-label").textContent = transcribe
+    ? "Descarcăm video-ul, îl transcriem cu Whisper și randăm clipurile."
+    : "Descarcăm video-ul, analizăm subtitrările și randăm clipurile.";
+  showMessage("loading", "Pregătim cele 3 Shorts", transcribe
+    ? `Transcrierea durează cam ${estimate} minute, plus descărcarea. Poți închide pagina: proiectul apare în „Proiectele mele” când e gata.`
+    : "Poate dura câteva minute, în funcție de lungimea videoclipului.");
   const token = viewToken;
   try {
-    const project = await api("/api/process", { method: "POST", body: { url: urlInput.value.trim() } });
+    const project = await api("/api/process", { method: "POST", body: { url, transcribe } });
     // If the user opened something else meanwhile, leave it; the project is in „Proiectele mele”.
     if (token !== viewToken) return;
     history.pushState(null, "", `#/p/${project.id}`);
@@ -170,12 +197,15 @@ function renderProject(project) {
 function createCard(project, clip) {
   const card = document.createElement("article");
   card.className = "clip-card";
-  const state = { zoom: clip.zoom, sat: clip.satisfyingOn, busy: false };
+  const state = { zoom: clip.zoom, sat: clip.satisfyingOn, cut: clip.cutPauses === true, busy: false };
+  // Pause cutting needs Whisper word timings; clips from older projects get them on the first „Aplică”.
+  const canCut = () => clip.wordsSource !== "youtube";
 
   function info() {
+    const seconds = Number(clip.duration) || clip.end - clip.start;
     return `<h3 class="clip-name">Short ${clip.n}</h3>
       <p class="clip-description">${escapeHtml(clip.caption)}</p>
-      <div class="clip-meta"><span>${escapeHtml(clip.time)}</span><span class="clip-score">POTENTIAL ${escapeHtml(clip.score)}</span></div>`;
+      <div class="clip-meta"><span>${escapeHtml(clip.time)} · ${Math.round(seconds)} s</span><span class="clip-score">POTENTIAL ${escapeHtml(clip.score)}</span></div>`;
   }
 
   function showResult() {
@@ -208,6 +238,10 @@ function createCard(project, clip) {
             <label><input class="sat-input" type="checkbox"> Video jos</label>
             <button class="reroll-button">↻ Alt video</button>
           </div>
+          <div class="pause-row">
+            <label><input class="pause-input" type="checkbox"> Taie pauzele</label>
+            <span class="pause-hint"></span>
+          </div>
           <div class="clip-actions">
             <button class="primary apply-button">Aplică</button>
             <button class="cancel-button">Renunță</button>
@@ -223,6 +257,11 @@ function createCard(project, clip) {
     const satInput = $(".sat-input", card);
     zoomInput.value = Math.round(state.zoom * 100);
     satInput.checked = state.sat;
+    const pauseInput = $(".pause-input", card);
+    pauseInput.checked = state.cut && canCut();
+    pauseInput.disabled = !canCut();
+    $(".pause-hint", card).textContent = canCut() ? "Pauzele se taie la Aplică" : "Necesită transcriere Whisper";
+    pauseInput.addEventListener("change", () => { state.cut = pauseInput.checked; });
 
     const syncOthers = () => {
       if (Math.abs(bg.currentTime - fg.currentTime) > 0.25) bg.currentTime = fg.currentTime;
@@ -247,7 +286,7 @@ function createCard(project, clip) {
     });
     $(".reroll-button", card).addEventListener("click", async () => { await pickSatisfying(); layoutStage(); });
     $(".apply-button", card).addEventListener("click", apply);
-    $(".cancel-button", card).addEventListener("click", () => { state.zoom = clip.zoom; state.sat = clip.satisfyingOn; showResult(); });
+    $(".cancel-button", card).addEventListener("click", () => { state.zoom = clip.zoom; state.sat = clip.satisfyingOn; state.cut = clip.cutPauses === true; showResult(); });
     layoutStage();
   }
 
@@ -275,6 +314,8 @@ function createCard(project, clip) {
   function setBusy(busy, label) {
     state.busy = busy;
     card.querySelectorAll(".editor input, .editor button").forEach((el) => { el.disabled = busy; });
+    const pauseInput = $(".pause-input", card);
+    if (pauseInput && !canCut()) pauseInput.disabled = true;
     const apply = $(".apply-button", card);
     if (apply) apply.textContent = busy && label ? label : "Aplică";
   }
@@ -303,7 +344,7 @@ function createCard(project, clip) {
     setError("");
     setBusy(true, "Se randează…");
     try {
-      const updated = await api("/api/render", { method: "POST", body: { id: project.id, clip: clip.n, zoom: state.zoom, satisfying: state.sat } });
+      const updated = await api("/api/render", { method: "POST", body: { id: project.id, clip: clip.n, zoom: state.zoom, satisfying: state.sat, cutPauses: state.cut && canCut() } });
       Object.assign(clip, updated);
       showResult();
     } catch (error) {
