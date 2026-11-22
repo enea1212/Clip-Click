@@ -1,0 +1,319 @@
+const $ = (selector, root = document) => root.querySelector(selector);
+const form = $("#url-form");
+const urlInput = $("#youtube-url");
+const views = { start: $("#start-view"), results: $("#results-view"), projects: $("#projects-view") };
+const grid = $("#clip-grid");
+
+function isYouTubeUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"].includes(url.hostname) && url.protocol === "https:";
+  } catch { return false; }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char]);
+}
+
+async function api(url, options = {}) {
+  const response = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options, body: options.body ? JSON.stringify(options.body) : undefined });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "Cererea a eșuat.");
+  return data;
+}
+
+// Bumped on every view change, so a slow request can tell the user has moved on.
+let viewToken = 0;
+
+function showView(name) {
+  viewToken += 1;
+  for (const [key, el] of Object.entries(views)) el.classList.toggle("hidden", key !== name);
+  $("#new-link").classList.toggle("active", name === "start");
+  $("#history-link").classList.toggle("active", name === "projects");
+  $("#crumb").textContent = name === "projects" ? "Proiectele mele" : name === "results" ? "Proiect" : "Proiect nou";
+  window.scrollTo({ top: 0 });
+}
+
+function showMessage(kind, title, text) {
+  grid.innerHTML = kind === "loading"
+    ? `<div class="processing-state"><div class="loader"></div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span></div>`
+    : `<div class="processing-error"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span></div>`;
+}
+
+/* ---------- routing ---------- */
+
+async function route() {
+  const hash = location.hash;
+  const projectMatch = hash.match(/^#\/p\/([0-9a-f-]{36})$/);
+  if (hash === "#/projects") return showProjects();
+  if (projectMatch) return openProject(projectMatch[1]);
+  showView("start");
+}
+
+async function openProject(id) {
+  showView("results");
+  $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
+  $("#video-label").textContent = "";
+  showMessage("loading", "Se încarcă proiectul", "");
+  try {
+    renderProject(await api(`/api/projects/${id}`));
+  } catch (error) {
+    const legacy = (await api("/api/projects").catch(() => [])).find((item) => item.id === id && item.legacy);
+    if (legacy) return renderLegacy(legacy);
+    showMessage("error", "Nu am putut deschide proiectul", error.message);
+  }
+}
+
+/* ---------- start / processing ---------- */
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!isYouTubeUrl(urlInput.value.trim())) {
+    urlInput.setCustomValidity("Adauga un link HTTPS valid de YouTube.");
+    urlInput.reportValidity();
+    return;
+  }
+  urlInput.setCustomValidity("");
+  const button = $(".submit-button", form);
+  const label = $("span", button);
+  const originalLabel = label.textContent;
+  button.disabled = true;
+  label.textContent = "Analizez videoclipul...";
+  showView("results");
+  $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
+  $("#video-label").textContent = "Descarcăm video-ul, analizăm subtitrările și randăm clipurile.";
+  showMessage("loading", "Pregătim cele 3 Shorts", "Poate dura câteva minute, în funcție de lungimea videoclipului.");
+  const token = viewToken;
+  try {
+    const project = await api("/api/process", { method: "POST", body: { url: urlInput.value.trim() } });
+    // If the user opened something else meanwhile, leave it; the project is in „Proiectele mele”.
+    if (token !== viewToken) return;
+    history.pushState(null, "", `#/p/${project.id}`);
+    renderProject(project);
+  } catch (error) {
+    if (token === viewToken) showMessage("error", "Nu am putut procesa videoclipul", error.message);
+  } finally {
+    button.disabled = false;
+    label.textContent = originalLabel;
+  }
+});
+
+urlInput.addEventListener("input", () => urlInput.setCustomValidity(""));
+// Setting an empty hash that is already empty fires no hashchange, so route directly.
+const goStart = () => { if (location.hash) location.hash = ""; else route(); };
+$("#back-button").addEventListener("click", goStart);
+$("#new-link").addEventListener("click", goStart);
+$("#history-link").addEventListener("click", () => { location.hash = "#/projects"; });
+window.addEventListener("hashchange", route);
+
+/* ---------- projects list ---------- */
+
+async function showProjects() {
+  showView("projects");
+  const list = $("#project-list");
+  list.innerHTML = `<div class="processing-state"><div class="loader"></div><strong>Se încarcă proiectele</strong></div>`;
+  try {
+    const projects = await api("/api/projects");
+    if (!projects.length) { list.innerHTML = `<p class="empty-list">Nu ai încă proiecte.</p>`; return; }
+    list.innerHTML = projects.map((item) => `
+      <div class="project-row" data-id="${escapeHtml(item.id)}">
+        <div class="project-main">
+          <strong>${escapeHtml(item.legacy ? "Proiect vechi" : item.title)}</strong>
+          <span>${escapeHtml(new Date(item.createdAt).toLocaleString("ro-RO"))} · ${item.legacy ? (item.clipCount ? "doar vizionare" : "incomplet — doar ștergere") : `${item.clipCount} clipuri`}</span>
+        </div>
+        <button class="text-button open-project">Deschide</button>
+        <button class="text-button danger delete-project">Șterge</button>
+      </div>`).join("");
+  } catch (error) {
+    list.innerHTML = `<div class="processing-error"><strong>Nu am putut încărca proiectele</strong><span>${escapeHtml(error.message)}</span></div>`;
+  }
+}
+
+$("#project-list").addEventListener("click", async (event) => {
+  const row = event.target.closest(".project-row");
+  if (!row) return;
+  if (event.target.closest(".open-project")) location.hash = `#/p/${row.dataset.id}`;
+  if (event.target.closest(".delete-project")) {
+    if (!confirm("Ștergi proiectul și toate fișierele lui? Nu se poate anula.")) return;
+    try {
+      await api(`/api/projects/${row.dataset.id}`, { method: "DELETE" });
+      row.remove();
+      if (!$(".project-row", $("#project-list"))) $("#project-list").innerHTML = `<p class="empty-list">Nu ai încă proiecte.</p>`;
+    } catch (error) {
+      alert(error.message);
+    }
+  }
+});
+
+/* ---------- results ---------- */
+
+function renderLegacy(item) {
+  $("#results-title").innerHTML = `Proiect <span>vechi</span>`;
+  $("#video-label").textContent = "Doar vizionare: acest proiect a fost creat înainte de editor.";
+  grid.innerHTML = item.videos.map((video, index) => `
+    <article class="clip-card">
+      <video class="clip-video" controls preload="metadata" src="${escapeHtml(video)}"></video>
+      <div class="clip-info">
+        <h3 class="clip-name">Short ${index + 1}</h3>
+        <div class="clip-actions"><a class="download-button" href="${escapeHtml(video)}" download="short-${index + 1}.mp4">Descarcă</a></div>
+      </div>
+    </article>`).join("");
+}
+
+function renderProject(project) {
+  $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
+  $("#video-label").textContent = project.title;
+  grid.innerHTML = "";
+  for (const clip of project.clips) grid.append(createCard(project, clip));
+}
+
+function createCard(project, clip) {
+  const card = document.createElement("article");
+  card.className = "clip-card";
+  const state = { zoom: clip.zoom, sat: clip.satisfyingOn, busy: false };
+
+  function info() {
+    return `<h3 class="clip-name">Short ${clip.n}</h3>
+      <p class="clip-description">${escapeHtml(clip.caption)}</p>
+      <div class="clip-meta"><span>${escapeHtml(clip.time)}</span><span class="clip-score">POTENTIAL ${escapeHtml(clip.score)}</span></div>`;
+  }
+
+  function showResult() {
+    card.innerHTML = `
+      <video class="clip-video" controls preload="metadata" src="${escapeHtml(clip.video)}"></video>
+      <div class="clip-info">${info()}
+        <div class="clip-actions">
+          <button class="edit-button">Editează</button>
+          <a class="download-button" href="${escapeHtml(clip.video)}" download="short-${clip.n}.mp4">Descarcă</a>
+        </div>
+      </div>`;
+    $(".edit-button", card).addEventListener("click", showEditor);
+  }
+
+  function showEditor() {
+    card.innerHTML = `
+      <div class="stage">
+        <div class="stage-top">
+          <video class="stage-bg" muted playsinline preload="auto" src="${escapeHtml(clip.raw)}"></video>
+          <video class="stage-fg" playsinline preload="auto" src="${escapeHtml(clip.raw)}"></video>
+        </div>
+        <div class="stage-bottom"><video class="stage-sat" muted loop playsinline preload="auto"></video></div>
+        <div class="stage-sub">SUBTITRARE</div>
+        <button class="stage-play" aria-label="Pornește previzualizarea">▶</button>
+      </div>
+      <div class="clip-info">${info()}
+        <div class="editor">
+          <label class="zoom-row">Zoom <input class="zoom-input" type="range" min="0" max="100" step="1"> <span class="zoom-value"></span></label>
+          <div class="sat-row">
+            <label><input class="sat-input" type="checkbox"> Video jos</label>
+            <button class="reroll-button">↻ Alt video</button>
+          </div>
+          <div class="clip-actions">
+            <button class="primary apply-button">Aplică</button>
+            <button class="cancel-button">Renunță</button>
+          </div>
+          <p class="clip-error"></p>
+        </div>
+      </div>`;
+    const fg = $(".stage-fg", card);
+    const bg = $(".stage-bg", card);
+    const sat = $(".stage-sat", card);
+    const play = $(".stage-play", card);
+    const zoomInput = $(".zoom-input", card);
+    const satInput = $(".sat-input", card);
+    zoomInput.value = Math.round(state.zoom * 100);
+    satInput.checked = state.sat;
+
+    const syncOthers = () => {
+      if (Math.abs(bg.currentTime - fg.currentTime) > 0.25) bg.currentTime = fg.currentTime;
+      if (state.sat && sat.duration) {
+        const target = fg.currentTime % sat.duration;
+        if (Math.abs(sat.currentTime - target) > 0.25) sat.currentTime = target;
+      }
+    };
+    const toggle = () => {
+      if (fg.paused) { syncOthers(); fg.play(); bg.play(); if (state.sat) sat.play(); play.textContent = "❚❚"; }
+      else { fg.pause(); bg.pause(); sat.pause(); play.textContent = "▶"; }
+    };
+    play.addEventListener("click", toggle);
+    fg.addEventListener("timeupdate", syncOthers);
+    fg.addEventListener("ended", () => { bg.pause(); sat.pause(); play.textContent = "▶"; });
+
+    zoomInput.addEventListener("input", () => { state.zoom = zoomInput.value / 100; layoutStage(); });
+    satInput.addEventListener("change", async () => {
+      state.sat = satInput.checked;
+      if (state.sat && !clip.satisfying) await pickSatisfying();
+      layoutStage();
+    });
+    $(".reroll-button", card).addEventListener("click", async () => { await pickSatisfying(); layoutStage(); });
+    $(".apply-button", card).addEventListener("click", apply);
+    $(".cancel-button", card).addEventListener("click", () => { state.zoom = clip.zoom; state.sat = clip.satisfyingOn; showResult(); });
+    layoutStage();
+  }
+
+  // Same formula as the ffmpeg render (layout.js), expressed in % of the top box.
+  function layoutStage() {
+    const top = $(".stage-top", card);
+    if (!top) return;
+    const box = Layout.boxFor(state.sat);
+    const size = Layout.zoomSize(project.sourceWidth, project.sourceHeight, box.w, box.h, state.zoom);
+    const fg = $(".stage-fg", card);
+    const width = (size.w / box.w) * 100;
+    const height = (size.h / box.h) * 100;
+    Object.assign(fg.style, { width: `${width}%`, height: `${height}%`, left: `${(100 - width) / 2}%`, top: `${(100 - height) / 2}%` });
+    top.style.height = state.sat ? "50%" : "100%";
+    const bottom = $(".stage-bottom", card);
+    bottom.classList.toggle("hidden", !state.sat);
+    const sat = $(".stage-sat", card);
+    if (state.sat && clip.satisfying && sat.getAttribute("src") !== clip.satisfying.preview) sat.src = clip.satisfying.preview;
+    if (state.sat && !$(".stage-fg", card).paused) sat.play();
+    $(".stage-sub", card).classList.toggle("split", state.sat);
+    $(".zoom-value", card).textContent = Math.round(state.zoom * 100);
+    $(".reroll-button", card).classList.toggle("hidden", !state.sat);
+  }
+
+  function setBusy(busy, label) {
+    state.busy = busy;
+    card.querySelectorAll(".editor input, .editor button").forEach((el) => { el.disabled = busy; });
+    const apply = $(".apply-button", card);
+    if (apply) apply.textContent = busy && label ? label : "Aplică";
+  }
+
+  function setError(message) {
+    const el = $(".clip-error", card);
+    if (el) el.textContent = message || "";
+  }
+
+  async function pickSatisfying() {
+    setError("");
+    setBusy(true, "Caut un video…");
+    try {
+      clip.satisfying = await api("/api/satisfying", { method: "POST", body: { id: project.id, clip: clip.n } });
+    } catch (error) {
+      state.sat = false;
+      const input = $(".sat-input", card);
+      if (input) input.checked = false;
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function apply() {
+    setError("");
+    setBusy(true, "Se randează…");
+    try {
+      const updated = await api("/api/render", { method: "POST", body: { id: project.id, clip: clip.n, zoom: state.zoom, satisfying: state.sat } });
+      Object.assign(clip, updated);
+      showResult();
+    } catch (error) {
+      setBusy(false);
+      setError(error.message);
+    }
+  }
+
+  showResult();
+  return card;
+}
+
+route();

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111210" />
+    <title>ClipTrei — Shorts dintr-un link</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="ClipTrei, pagina principală"><span class="brand-mark">C<span>3</span></span><span>cliptrei</span></a>
+        <div class="side-label">WORKSPACE</div>
+        <button class="nav-item active" id="new-link"><span class="nav-icon">✳</span> Proiect nou <span class="shortcut">⌘ K</span></button>
+        <button class="nav-item" id="history-link"><span class="nav-icon">▤</span> Proiectele mele</button>
+        <div class="sidebar-bottom"><div class="help-icon">?</div><div><strong>Primii pași</strong><span>Învață cum funcționează</span></div><span class="arrow">↗</span></div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="crumb">Proiect nou</strong></div><div class="top-actions"><span class="status-dot"></span><span class="status-text">Toate sistemele funcționează</span><button class="avatar" aria-label="Profil">A</button></div></header>
+
+        <section class="hero" id="start-view">
+          <div class="eyebrow"><span class="eyebrow-icon">✦</span> VIDEO → SHORTS</div>
+          <h1>Un video lung.<br /><span>Trei momente bune.</span></h1>
+          <p class="hero-copy">Pune linkul de YouTube. Găsim momentele care merită văzute și le pregătim ca Shorts cu subtitrări.</p>
+
+          <form class="url-form" id="url-form">
+            <div class="input-wrap"><span class="youtube-icon">▶</span><input id="youtube-url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="url" aria-label="Link video YouTube" required /><span class="input-hint">LINK YOUTUBE</span></div>
+            <button class="submit-button" type="submit"><span>Găsește momentele</span><span class="button-arrow">↗</span></button>
+          </form>
+          <div class="form-note"><span class="lock">⌑</span> Funcționează cu videoclipuri publice <span class="note-separator">·</span> 3 clipuri verticale</div>
+
+          <div class="how-it-works"><div class="section-kicker">CUM FUNCȚIONEAZĂ</div><div class="steps">
+            <div class="step"><div class="step-number">01</div><div><strong>Adaugi linkul</strong><span>Orice video YouTube public</span></div></div>
+            <div class="step-line"></div>
+            <div class="step"><div class="step-number">02</div><div><strong>Alegi momentele</strong><span>Îți propunem 3 secvențe</span></div></div>
+            <div class="step-line"></div>
+            <div class="step"><div class="step-number">03</div><div><strong>Descarci Shorts</strong><span>Verticale, cu subtitrări</span></div></div>
+          </div></div>
+
+          <div class="demo-label"><span></span> PREVIZUALIZARE EXEMPLU</div>
+          <div class="sample-strip"><div class="sample-card sample-one"><span class="sample-play">▶</span><span class="sample-time">00:42 — 01:18</span><span class="sample-caption">„Aici se schimbă totul...”</span></div><div class="sample-card sample-two"><span class="sample-play">▶</span><span class="sample-time">03:15 — 03:52</span><span class="sample-caption">„Uite ce nu ți se spune”</span></div><div class="sample-card sample-three"><span class="sample-play">▶</span><span class="sample-time">07:06 — 07:41</span><span class="sample-caption">„Și asta e partea interesantă”</span></div></div>
+          <p class="sample-disclaimer">Momentele de mai sus sunt doar un exemplu de previzualizare.</p>
+        </section>
+
+        <section class="results-view hidden" id="results-view">
+          <div class="results-heading"><div><div class="eyebrow"><span class="eyebrow-icon">✦</span> ANALIZĂ VIDEO</div><h2 id="results-title">Am găsit <span>3 momente</span></h2><p class="results-subtitle" id="video-label"></p></div><button class="text-button" id="back-button">← Alt videoclip</button></div>
+          <div class="clip-grid" id="clip-grid"></div>
+        </section>
+        <section class="results-view hidden" id="projects-view">
+          <div class="results-heading"><div><div class="eyebrow"><span class="eyebrow-icon">✦</span> WORKSPACE</div><h2>Proiectele <span>mele</span></h2><p class="results-subtitle">Deschide un proiect ca să editezi clipurile.</p></div></div>
+          <div class="project-list" id="project-list"></div>
+        </section>
+        <footer><span>cliptrei <span class="footer-dot">·</span> din video lung în clipuri scurte</span><span>Făcut pentru creatori <span class="sparkle">✳</span></span></footer>
+      </main>
+    </div>
+    <script src="layout.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
