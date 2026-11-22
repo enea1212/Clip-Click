@@ -39,12 +39,17 @@ function updateClip(dataDir, id, n, changes) {
 }
 
 // In-memory job locks. Keys are "<id>:<clip>" for renders/picks and "<id>:process" for processing.
+// Plus one global "heavy" slot: only one video is processed (download + Whisper) at a time.
 function createLocks() {
   const held = new Set();
+  let heavy = false;
   return {
     acquire(key) { if (held.has(key)) return false; held.add(key); return true; },
     release(key) { held.delete(key); },
     isProjectBusy(id) { return [...held].some((key) => key.startsWith(`${id}:`)); },
+    acquireHeavy() { if (heavy) return false; heavy = true; return true; },
+    releaseHeavy() { heavy = false; },
+    heavyBusy() { return heavy; },
   };
 }
 
