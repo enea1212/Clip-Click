@@ -28,3 +28,22 @@ test("range: valid, open-ended, and invalid headers", () => {
   for (const bad of ["bytes=abc-", "bytes=1000-", "bytes=50-10", "bytes=-", "items=0-1"]) assert.equal(H.parseRange(bad, 1000), "invalid", bad);
   assert.equal(H.parseRange(undefined, 1000), null);
 });
+
+test("checkRequest: only this app's own pages may call it", () => {
+  const ok = (method, headers) => H.checkRequest(method, headers, 4173);
+  assert.equal(ok("GET", { host: "localhost:4173" }), null);
+  assert.equal(ok("GET", { host: "127.0.0.1:4173" }), null);
+  assert.equal(ok("GET", { host: "evil.com" }).status, 403);
+  assert.equal(ok("GET", {}).status, 403);
+  const json = { host: "localhost:4173", "content-type": "application/json" };
+  assert.equal(ok("POST", { ...json, origin: "http://localhost:4173" }), null);
+  assert.equal(ok("POST", { ...json, origin: "http://127.0.0.1:4173" }), null);
+  assert.equal(ok("POST", json), null, "no Origin (curl, local tools) is allowed");
+  assert.equal(ok("POST", { ...json, "content-type": "application/json; charset=utf-8" }), null);
+  assert.equal(ok("POST", { ...json, origin: "http://evil.com" }).status, 403);
+  assert.equal(ok("POST", { ...json, origin: "http://localhost:9999" }).status, 403);
+  assert.equal(ok("POST", { ...json, "content-type": "text/plain" }).status, 415);
+  assert.equal(ok("POST", { host: "localhost:4173" }).status, 415);
+  assert.equal(ok("DELETE", { host: "localhost:4173", origin: "http://evil.com" }).status, 403);
+  assert.equal(ok("DELETE", { host: "localhost:4173", origin: "http://localhost:4173" }), null);
+});
