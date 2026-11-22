@@ -61,6 +61,6 @@ Funcționalitatea Whisper + tăierea pauzelor e **gata**: toate task-urile, revi
 
 Robustețea, testele end-to-end, „LOCUL n DIN 3” și problemele mici sunt în `main` (PR #1–#6).
 
-**Alegerea momentelor cu AI** e pe branch-ul `feature/ai-momente`, cu PR deschis: Ollama `qwen2.5:7b` notează 10 candidați preselectați de reguli, apoi o rundă de clasare comparativă; titlu + motiv pe card; rezervă pe reguli; „Alege din nou cu AI”. Măsurat pe TED: ~60 s/candidat, total 464 s. Probleme amânate: fără limită totală de timp pentru etapa AI; ecranul „Alege din nou” fără progres. Detalii: `.superpowers/sdd/2026-11-22-ai-momente/progress.md`.
+**Alegerea momentelor cu AI** e pe branch-ul `feature/ai-momente`, cu PR deschis (#7, încă fără merge): Ollama `qwen2.5:7b` notează 10 candidați preselectați de reguli, apoi o rundă de clasare comparativă; titlu + motiv pe card; rezervă pe reguli; „Alege din nou cu AI”. Măsurat pe TED: ~60 s/candidat, total 464 s. Probleme amânate: fără limită totală de timp pentru etapa AI; ecranul „Alege din nou” fără progres. Detalii: `.superpowers/sdd/2026-11-22-ai-momente/progress.md`.
 
 Următorul pas: merge la PR-ul AI, apoi un test pe un stream de gaming real.
