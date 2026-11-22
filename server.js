@@ -5,7 +5,8 @@ const os = require("node:os");
 const { run } = require("./proc");
 const { randomUUID } = require("node:crypto");
 const { parseVttWords, groupWords, buildAss, pickCaptionTrack } = require("./subtitles");
-const { chooseClips, rankClips } = require("./clips");
+const { chooseClips, chooseCandidates } = require("./clips");
+const AI = require("./ai");
 const { clipArgs, rawPreviewArgs, satPreviewArgs, probeArgs, parseProbe } = require("./render");
 const P = require("./projects");
 const { resolveStatic, decodePath, parseRange, checkRequest } = require("./http-utils");
@@ -190,7 +191,7 @@ async function inspectVideo(rawUrl) {
   const url = safeUrl(rawUrl);
   if (!url) throw new UserError("Te rog introdu un link https valid de YouTube.");
   const info = JSON.parse(await run("python", ["-m", "yt_dlp", "--no-playlist", "--no-warnings", "--skip-download", "--dump-json", url], { windowsHide: true }));
-  return { title: info.title || "", duration: Number(info.duration) || 0, hasSubtitles: W.hasOriginalSubtitles(info), estimateMinutes: W.estimateMinutes(info.duration), whisperAvailable: await whisperAvailable() };
+  return { title: info.title || "", duration: Number(info.duration) || 0, hasSubtitles: W.hasOriginalSubtitles(info), estimateMinutes: W.estimateMinutes(info.duration), whisperAvailable: await whisperAvailable(), ai: await AI.ollamaStatus() };
 }
 
 async function processVideo(rawUrl, { transcribe = false } = {}) {
@@ -226,10 +227,105 @@ async function resumeProject(id) {
   }
 }
 
+// „Alege din nou cu AI”: re-choose the moments of a finished project with the AI, reusing the
+// downloaded video and the transcript (no download, no Whisper). The AI is checked first, so the
+// existing clips stay untouched if it is still unavailable.
+async function rechooseProject(id) {
+  const project = loadProject(id);
+  if (normalizeStatus(project, locks.isProjectBusy(id)).status !== "ready") throw new UserError("Proiectul nu e gata încă.");
+  const ai = await AI.ollamaStatus();
+  if (!ai.ok) throw new UserError(`AI-ul nu e disponibil: ${ai.reason}.`);
+  if (!locks.acquireHeavy()) throw new UserError(BUSY_MESSAGE, 409);
+  try {
+    return await withLock(`${id}:rechoose`, "Proiectul se procesează deja.", async () => {
+      const folder = folderOf(id);
+      const fresh = loadProject(id);
+      for (const clip of fresh.clips) {
+        for (const name of [fileOfUrl(clip.video), fileOfUrl(clip.raw), `sat-${clip.n}.mp4`, `captions-${clip.n}.ass`, `words-${clip.n}.json`]) {
+          if (name) try { fs.rmSync(path.join(folder, name), { force: true }); } catch { /* in use: cleaned on a later run */ }
+        }
+      }
+      fs.rmSync(path.join(folder, "ai"), { recursive: true, force: true });
+      saveStage(fresh, { clips: [], selection: undefined, selectionNote: undefined, aiProgress: undefined, status: "failed", error: "Se aleg din nou momentele." });
+      return runPipeline(id, { firstRun: false });
+    });
+  } finally {
+    locks.releaseHeavy();
+  }
+}
+
+const fileOfUrl = (publicUrl) => (publicUrl ? path.basename(String(publicUrl).split("?")[0]) : null);
+
 // Download flags: full transcription doesn't need YouTube's subtitles at all.
 const subtitleArgs = (transcribe) => (transcribe ? [] : ["--write-auto-subs", "--write-subs", "--sub-langs", W.SUB_LANGS, "--sub-format", "vtt/best"]);
 
 const saveStage = (project, changes) => { Object.assign(project, changes); P.saveProject(DATA_DIR, project); };
+
+// Language of the transcript, so the AI writes titles in it: the subtitle track's language, or
+// the one Whisper detected for a full transcription.
+function transcriptLanguage(project, folder) {
+  const fromTrack = W.trackLanguage(project.track);
+  if (fromTrack) return fromTrack;
+  try { return JSON.parse(fs.readFileSync(path.join(folder, "chunks", "chunk-0.json"), "utf8")).language || null; } catch { return null; }
+}
+
+// Stage "choosing": the AI scores 10 rule-preselected candidates (each answer saved in ai/, so
+// „Reia” only asks for the missing ones); the best 3 AI clips win, rules fill any gap. If the AI
+// isn't available the rules choose, exactly as before — processing never fails because of it.
+async function chooseMoments(project, folder, words) {
+  saveStage(project, { status: "choosing", error: undefined });
+  const transcript = groupWords(words).map((group) => ({ start: group[0].start, end: group.at(-1).end, caption: group.map((item) => item.word).join(" ") }));
+  const ruleClips = chooseClips(transcript);
+  const ai = await AI.ollamaStatus();
+  const aiClips = [];
+  let note = ai.ok ? undefined : ai.reason;
+  if (ai.ok) {
+    const candidates = chooseCandidates(transcript, { count: 10, length: 75 });
+    const aiDir = path.join(folder, "ai");
+    fs.mkdirSync(aiDir, { recursive: true });
+    const language = transcriptLanguage(project, folder);
+    let done = 0;
+    for (const [index, candidate] of candidates.entries()) {
+      const file = path.join(aiDir, `candidate-${index}.json`);
+      let clip;
+      if (fs.existsSync(file)) {
+        ({ clip } = JSON.parse(fs.readFileSync(file, "utf8")));
+      } else {
+        saveStage(project, { aiProgress: { done, total: candidates.length } });
+        const lines = AI.buildLines(words, candidate.start, candidate.end);
+        try {
+          clip = lines.length ? AI.parseAnswer(await AI.askOllama(AI.buildPrompt(lines, { language })), lines) : null;
+        } catch (error) {
+          console.warn(`[ai] candidatul ${index + 1}: ${error.message}`);
+          clip = null;
+        }
+        P.writeJsonAtomic(file, { clip });
+      }
+      if (clip) aiClips.push(clip);
+      done += 1;
+    }
+    saveStage(project, { aiProgress: { done, total: candidates.length } });
+    if (!aiClips.length) note = "AI-ul n-a găsit momente potrivite";
+  }
+  const final = AI.pickFinal(aiClips, ruleClips);
+  if (final.length < 3) throw permanent(new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente."));
+  const source = await probe("source.mp4", folder);
+  const captionOf = (clip) => (clip.entries
+    ? clip.entries.map((entry) => entry.caption).join(" ")
+    : words.filter((word) => word.start >= clip.start && word.start < clip.end).map((word) => word.word).join(" ")).slice(0, 180);
+  saveStage(project, {
+    sourceWidth: source.width, sourceHeight: source.height, fps: source.fps,
+    selection: final.some((clip) => clip.source === "ai") ? "ai" : "reguli",
+    selectionNote: final.some((clip) => clip.source === "reguli") ? note : undefined,
+    clips: final.map((clip, index) => ({
+      n: index + 1, start: clip.start, end: clip.end,
+      time: `${timestamp(clip.start)} — ${timestamp(clip.end)}`,
+      rank: clip.rank, source: clip.source, title: clip.title, reason: clip.reason, aiScore: clip.aiScore,
+      caption: captionOf(clip),
+      zoom: 1, satisfyingOn: false, satisfying: null, video: null, raw: null,
+    })),
+  });
+}
 
 // The whole processing, stage by stage. Every stage checks the files on disk (resumePlan)
 // and skips what is already done; progress is saved after each stage.
@@ -286,23 +382,7 @@ async function runPipeline(id, { firstRun }) {
       }
       const words = JSON.parse(fs.readFileSync(path.join(folder, "words.json"), "utf8"));
 
-      if (plan.choose) {
-        const transcript = groupWords(words).map((group) => ({ start: group[0].start, end: group.at(-1).end, caption: group.map((item) => item.word).join(" ") }));
-        const chosen = chooseClips(transcript);
-        if (chosen.length < 3) throw permanent(new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente."));
-        const source = await probe("source.mp4", folder);
-        const ranks = rankClips(chosen);
-        saveStage(project, {
-          sourceWidth: source.width, sourceHeight: source.height, fps: source.fps,
-          clips: chosen.map((clip, index) => ({
-            n: index + 1, start: clip.start, end: clip.end,
-            time: `${timestamp(clip.start)} — ${timestamp(clip.end)}`,
-            rank: ranks[index],
-            caption: clip.entries.map((entry) => entry.caption).join(" ").slice(0, 180),
-            zoom: 1, satisfyingOn: false, satisfying: null, video: null, raw: null,
-          })),
-        });
-      }
+      if (plan.choose) await chooseMoments(project, folder, words);
 
       saveStage(project, { status: "rendering", error: undefined });
       for (const n of resumePlan(project, filesNow()).renderClips) {
@@ -452,6 +532,11 @@ async function handleApi(req, res, pathname) {
   if (req.method === "POST" && resumeMatch) {
     if (!P.isValidId(resumeMatch[1])) throw new UserError("Proiect invalid.");
     return resumeProject(resumeMatch[1]);
+  }
+  const rechooseMatch = pathname.match(/^\/api\/projects\/([^/]+)\/rechoose$/);
+  if (req.method === "POST" && rechooseMatch) {
+    if (!P.isValidId(rechooseMatch[1])) throw new UserError("Proiect invalid.");
+    return rechooseProject(rechooseMatch[1]);
   }
   if (req.method === "POST" && pathname === "/api/inspect") return inspectVideo((await readJson(req)).url);
   if (req.method === "POST" && pathname === "/api/process") {

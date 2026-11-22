@@ -128,4 +128,38 @@ function pickFinal(aiClips, ruleClips, count = 3) {
   return chosen.sort((a, b) => a.start - b.start);
 }
 
-module.exports = { buildLines, buildPrompt, parseAnswer, pickFinal, ANSWER_SCHEMA, MIN_CLIP, MAX_CLIP };
+// --- Ollama HTTP (local) ---------------------------------------------------------------
+
+const OLLAMA_URL = process.env.CLIPTREI_OLLAMA_URL || "http://127.0.0.1:11434";
+const MODEL = process.env.CLIPTREI_MODEL || "qwen2.5:7b";
+const ANSWER_TIMEOUT_MS = 180_000;
+
+async function fetchJson(url, options, timeoutMs) {
+  const response = await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+// Is Ollama running, with the model downloaded? { ok, reason } — the reason is shown to Enea.
+async function ollamaStatus(url = OLLAMA_URL, model = MODEL) {
+  try {
+    const tags = await fetchJson(`${url}/api/tags`, {}, 3000);
+    const names = (tags.models || []).map((item) => item.name);
+    if (!names.some((name) => name === model || name === `${model}:latest`)) return { ok: false, reason: `modelul ${model} nu e descărcat (ollama pull ${model})` };
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "Ollama nu rulează" };
+  }
+}
+
+// One answer for one candidate: the raw JSON text from the model (parseAnswer validates it).
+async function askOllama(prompt, { url = OLLAMA_URL, model = MODEL, timeoutMs = ANSWER_TIMEOUT_MS } = {}) {
+  const result = await fetchJson(`${url}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, prompt, stream: false, format: ANSWER_SCHEMA, keep_alive: "10m", options: { temperature: 0.2 } }),
+  }, timeoutMs);
+  return result.response;
+}
+
+module.exports = { buildLines, buildPrompt, parseAnswer, pickFinal, ollamaStatus, askOllama, ANSWER_SCHEMA, MIN_CLIP, MAX_CLIP, MODEL };

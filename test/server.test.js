@@ -18,6 +18,28 @@ const URL_A = "https://www.youtube.com/watch?v=FAKEAAAAAAA";
 
 let server;
 const setControl = (value) => { fs.writeFileSync(CONTROL, JSON.stringify(value)); fs.rmSync(`${CONTROL}.log`, { force: true }); };
+
+// Fake Ollama in this process. mode: "down" (default: tests that don't care about AI use rules),
+// "up" (answers every candidate), "garbage-first" (first answer invalid, the rest good).
+const ollama = { mode: "down", calls: 0 };
+const OLLAMA_PORT = PORT + 1;
+const http = require("node:http");
+const fakeOllama = http.createServer((req, res) => {
+  let body = "";
+  req.on("data", (chunk) => { body += chunk; });
+  req.on("end", () => {
+    if (ollama.mode === "down") { res.writeHead(503); res.end(); return; }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    if (req.url === "/api/tags") { res.end(JSON.stringify({ models: [{ name: "qwen2.5:7b" }] })); return; }
+    ollama.calls += 1;
+    const lines = (JSON.parse(body).prompt.match(/^\[\d+\]/gm) || []).length;
+    // Score grows with the call number so the pick is deterministic; span: lines 2..9 (~30 s).
+    const answer = ollama.mode === "garbage-first" && ollama.calls === 1
+      ? "not json at all"
+      : JSON.stringify({ kind: "podcast", score: Math.min(10, ollama.calls), start_line: 2, end_line: Math.min(9, lines - 1), title: `Titlu ${ollama.calls}`, reason: `Motiv ${ollama.calls}` });
+    res.end(JSON.stringify({ response: answer }));
+  });
+});
 const calls = () => (fs.existsSync(`${CONTROL}.log`) ? fs.readFileSync(`${CONTROL}.log`, "utf8").trim().split("\n") : []);
 const post = (p, body, headers = {}) => fetch(BASE + p, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) })
   .then(async (r) => ({ status: r.status, body: await r.json() }));
@@ -27,8 +49,10 @@ const folders = () => (fs.existsSync(DATA) ? fs.readdirSync(DATA) : []);
 test.before(async () => {
   fs.mkdirSync(SATISFYING, { recursive: true });
   setControl({});
+  await new Promise((resolve) => fakeOllama.listen(OLLAMA_PORT, "127.0.0.1", resolve));
   server = spawn(process.execPath, [path.join(ROOT, "server.js")], {
-    env: { ...process.env, PORT: String(PORT), CLIPTREI_DATA_DIR: DATA, CLIPTREI_SATISFYING_DIR: SATISFYING, CLIPTREI_FAKE_TOOLS: path.join(ROOT, "testing", "fake-tools.js"), CLIPTREI_FAKE_CONTROL: CONTROL },
+    // CLIPTREI_OLLAMA_URL always points at the fake: the tests must never call a real model.
+    env: { ...process.env, PORT: String(PORT), CLIPTREI_DATA_DIR: DATA, CLIPTREI_SATISFYING_DIR: SATISFYING, CLIPTREI_FAKE_TOOLS: path.join(ROOT, "testing", "fake-tools.js"), CLIPTREI_FAKE_CONTROL: CONTROL, CLIPTREI_OLLAMA_URL: `http://127.0.0.1:${OLLAMA_PORT}` },
     stdio: ["ignore", "pipe", "pipe"],
   });
   await new Promise((resolve, reject) => {
@@ -39,6 +63,7 @@ test.before(async () => {
 
 test.after(() => {
   server?.kill();
+  fakeOllama.close();
   fs.rmSync(work, { recursive: true, force: true });
 });
 
@@ -191,4 +216,84 @@ test("a crash's leftovers (temp audio, orphan clips) are cleaned when the projec
   assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
   assert.equal(fs.existsSync(path.join(folder, "chunk-3.wav")), false);
   assert.equal(fs.existsSync(path.join(folder, "short-2-1.mp4")), false);
+});
+
+test("AI picks the moments: titles, reasons, 20–50 s clips, rank by AI score", async () => {
+  ollama.mode = "up"; ollama.calls = 0;
+  setControl({ duration: 900 });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  ollama.mode = "down";
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.selection, "ai");
+  assert.ok(ollama.calls >= 3 && ollama.calls <= 10, `calls ${ollama.calls}`);
+  assert.deepEqual(body.aiProgress, { done: ollama.calls, total: ollama.calls });
+  for (const clip of body.clips) {
+    assert.equal(clip.source, "ai");
+    assert.match(clip.title, /^Titlu \d+$/);
+    assert.match(clip.reason, /^Motiv \d+$/);
+    assert.ok(clip.end - clip.start >= 20 && clip.end - clip.start <= 50, `${clip.end - clip.start}`);
+  }
+  assert.deepEqual(body.clips.map((c) => c.rank).sort(), [1, 2, 3]);
+  const best = body.clips.find((c) => c.rank === 1);
+  assert.ok(body.clips.every((c) => Number(c.title.split(" ")[1]) <= Number(best.title.split(" ")[1])), "rank 1 = highest AI score");
+});
+
+test("Ollama down: rules choose, the project still finishes, with a note", async () => {
+  ollama.mode = "down";
+  setControl({ duration: 900 });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.status, "ready");
+  assert.equal(body.selection, "reguli");
+  assert.ok(body.selectionNote);
+  assert.ok(body.clips.every((c) => c.source === "reguli"));
+});
+
+test("one garbage AI answer only drops that candidate", async () => {
+  ollama.mode = "garbage-first"; ollama.calls = 0;
+  setControl({ duration: 900 });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  ollama.mode = "down";
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.selection, "ai");
+  assert.ok(body.clips.every((c) => c.title !== "Titlu 1"));
+});
+
+test("Reia after some candidates were scored asks the AI only for the missing ones", async () => {
+  ollama.mode = "up"; ollama.calls = 0;
+  setControl({ duration: 900 });
+  const first = await post("/api/process", { url: URL_A });
+  const total = ollama.calls;
+  const folder = path.join(DATA, first.body.id);
+  // Stand in for a crash after 2 scored candidates: drop the clips and the later answers.
+  for (const name of fs.readdirSync(path.join(folder, "ai"))) if (!/^candidate-[01]\.json$/.test(name)) fs.rmSync(path.join(folder, "ai", name));
+  const project = JSON.parse(fs.readFileSync(path.join(folder, "project.json"), "utf8"));
+  fs.writeFileSync(path.join(folder, "project.json"), JSON.stringify({ ...project, status: "failed", error: "x", clips: [] }));
+  ollama.calls = 0;
+  const resumed = await post(`/api/projects/${first.body.id}/resume`, {});
+  ollama.mode = "down";
+  assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+  assert.equal(ollama.calls, total - 2);
+  assert.equal(resumed.body.selection, "ai");
+});
+
+test("Alege din nou cu AI: refused while Ollama is down (clips untouched), works when it is up", async () => {
+  ollama.mode = "down";
+  setControl({ duration: 900 });
+  const made = await post("/api/process", { url: URL_A });
+  assert.equal(made.body.selection, "reguli");
+  const refused = await post(`/api/projects/${made.body.id}/rechoose`, {});
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /AI/);
+  const still = await get(`/api/projects/${made.body.id}`);
+  assert.deepEqual(still.clips.map((c) => c.video), made.body.clips.map((c) => c.video));
+
+  ollama.mode = "up"; ollama.calls = 0;
+  setControl({ duration: 900 }); // clears the tool-call log: only the rechoose's calls count below
+  const redone = await post(`/api/projects/${made.body.id}/rechoose`, {});
+  ollama.mode = "down";
+  assert.equal(redone.status, 200, JSON.stringify(redone.body));
+  assert.equal(redone.body.selection, "ai");
+  assert.equal(calls().filter((line) => line.startsWith("python -m yt_dlp")).length, 0, "no re-download");
+  for (const clip of made.body.clips) assert.equal(fs.existsSync(path.join(DATA, made.body.id, clip.video.split("/").pop())), false, "old clip files removed");
 });
