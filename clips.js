@@ -33,6 +33,26 @@ function chooseClips(entries) {
   return chosen.sort((a, b) => a.start - b.start);
 }
 
+// Preselection for the AI: the `count` best non-overlapping windows of `length` seconds by the
+// rule score, best first. The AI then reads only these (bounded time, even on hours of video).
+function chooseCandidates(entries, { count = 10, length = 75, step = 15 } = {}) {
+  const lastTime = entries.at(-1)?.end || 0;
+  const windows = [];
+  for (let start = 0; start + length <= lastTime; start += step) {
+    const selected = entries.filter((entry) => entry.end > start && entry.start < start + length);
+    const words = selected.map((entry) => entry.caption).join(" ").split(/\s+/).filter(Boolean).length;
+    if (words < 10) continue;
+    windows.push({ start, end: start + length, score: scoreWindow(selected, start, length) });
+  }
+  windows.sort((a, b) => b.score - a.score);
+  const chosen = [];
+  for (const item of windows) {
+    if (chosen.every((prior) => item.start >= prior.end || item.end <= prior.start)) chosen.push(item);
+    if (chosen.length === count) break;
+  }
+  return chosen;
+}
+
 // The score is a heuristic (speech density + hook words), not a probability, so the UI shows
 // only the ranking: rank 1 = best score. Returns ranks in the clips' own (chronological) order.
 function rankClips(clips) {
@@ -42,4 +62,4 @@ function rankClips(clips) {
   return ranks;
 }
 
-module.exports = { chooseClips, countHooks, scoreWindow, rankClips };
+module.exports = { chooseClips, chooseCandidates, countHooks, scoreWindow, rankClips };
