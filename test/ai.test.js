@@ -116,3 +116,33 @@ test("buildPrompt names the title language explicitly when it is known", () => {
   assert.match(A.buildPrompt(LINES, { language: "ro" }), /title[^\n]*in Romanian/);
   assert.match(A.buildPrompt(LINES, {}), /same language as the transcript/);
 });
+
+test("buildPrompt asks for a 30–45 s target inside the 20–50 s limits", () => {
+  assert.match(A.buildPrompt(LINES, { language: "en" }), /aim for 30.45 seconds/i);
+});
+
+test("buildRankPrompt lists every candidate with its title and opening words", () => {
+  const prompt = A.buildRankPrompt([{ title: "Panic monster", text: "So the panic monster wakes up when the deadline is close and" }, { title: "Funny fail", text: "I had this plan" }]);
+  assert.match(prompt, /\[0\] Panic monster — So the panic monster/);
+  assert.match(prompt, /\[1\] Funny fail — I had this plan/);
+  assert.match(prompt, /order/);
+  assert.deepEqual(A.RANK_SCHEMA.required, ["order"]);
+});
+
+test("parseRanking: valid order kept; duplicates, unknown indices and missing ones handled", () => {
+  assert.deepEqual(A.parseRanking({ order: [2, 0, 1] }, 3), [2, 0, 1]);
+  assert.deepEqual(A.parseRanking({ order: [2, 2, 7, 0] }, 3), [2, 0, 1], "dupes and out-of-range dropped, missing appended in original order");
+  assert.deepEqual(A.parseRanking("{\"order\":[1]}", 3), [1, 0, 2]);
+  assert.equal(A.parseRanking("garbage", 3), null);
+  assert.equal(A.parseRanking({ order: "x" }, 3), null);
+});
+
+test("pickFinal follows the AI ranking order when given, not the per-candidate score", () => {
+  const ai = [
+    { start: 100, end: 130, score: 7, order: 2, title: "B", reason: "r", kind: "podcast" },
+    { start: 300, end: 340, score: 7, order: 0, title: "A", reason: "r", kind: "podcast" },
+    { start: 500, end: 530, score: 7, order: 1, title: "C", reason: "r", kind: "podcast" },
+  ];
+  const final = A.pickFinal(ai, []);
+  assert.deepEqual(final.map((c) => [c.title, c.rank]), [["B", 3], ["A", 1], ["C", 2]]);
+});

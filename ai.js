@@ -64,7 +64,8 @@ function buildPrompt(lines, { language } = {}) {
     "Good moments for a stream: strong reactions, funny moments, spectacular fails or wins, great one-liners.",
     "Good moments for a podcast: a strong idea said briefly, a story with an ending, a controversial opinion, clear advice.",
     "Always: the clip must make sense on its own without context and must hook the viewer in the first 2-3 seconds.",
-    "The clip must be between 20 and 50 seconds long and must start and end at whole lines.",
+    "The clip must be between 20 and 50 seconds long (aim for 30-45 seconds: long enough to tell the whole",
+    "moment) and must start and end at whole lines.",
     "Reply in JSON with: kind; score (0-10, how good this moment is as a Short; be strict, 5 is average);",
     `start_line and end_line (the line numbers in brackets, inclusive); ${titleRule};`,
     "reason (why this moment works, max 15 words). The reason MUST be written in Romanian (limba română),",
@@ -108,13 +109,51 @@ function parseAnswer(raw, lines) {
   };
 }
 
+// --- Final ranking pass ----------------------------------------------------------------
+// Scored one by one, the 7b model gives almost every candidate the same score (all 7 on a real
+// TED talk). Seen side by side it ranks them clearly, so one extra call orders the candidates.
+
+const RANK_SCHEMA = {
+  type: "object",
+  properties: { order: { type: "array", items: { type: "integer" } } },
+  required: ["order"],
+};
+
+const opening = (text, words = 40) => String(text).split(/\s+/).slice(0, words).join(" ");
+
+// candidates: [{ title, text }] — text = the clip's transcript.
+function buildRankPrompt(candidates) {
+  return [
+    "Below are candidate moments from one video, each with a proposed YouTube Short title and its opening words.",
+    "Rank them from best to worst as YouTube Shorts: strongest hook in the first seconds, makes sense without",
+    "context, funny or emotional or a strong idea or a complete story. Be decisive: they are NOT equally good.",
+    "Reply in JSON: {\"order\": [candidate numbers, best first]} including every candidate exactly once.",
+    "",
+    ...candidates.map((candidate, index) => `[${index}] ${candidate.title} — ${opening(candidate.text)}`),
+  ].join("\n");
+}
+
+// The model's order, cleaned: duplicates and unknown numbers dropped, missing ones appended in
+// their original order. null if the answer isn't usable at all.
+function parseRanking(raw, count) {
+  let answer = raw;
+  if (typeof answer === "string") { try { answer = JSON.parse(answer); } catch { return null; } }
+  if (!answer || !Array.isArray(answer.order)) return null;
+  const seen = new Set();
+  for (const value of answer.order) if (Number.isInteger(value) && value >= 0 && value < count) seen.add(value);
+  for (let index = 0; index < count; index += 1) seen.add(index);
+  return [...seen];
+}
+
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
-// Final 3: AI clips by AI score, then rule clips by rule score to fill, never overlapping.
-// Rank 1 = best (AI clips always rank above rule clips). Returned in chronological order.
+// Final 3: AI clips by the ranking pass (`order`, 0 = best) or else by AI score, then rule clips
+// by rule score to fill, never overlapping. Rank 1 = best (AI clips always rank above rule clips).
+// Returned in chronological order.
 function pickFinal(aiClips, ruleClips, count = 3) {
   const chosen = [];
-  for (const clip of [...aiClips].sort((a, b) => b.score - a.score)) {
+  const byQuality = (a, b) => (a.order !== undefined && b.order !== undefined ? a.order - b.order : b.score - a.score);
+  for (const clip of [...aiClips].sort(byQuality)) {
     if (chosen.length < count && chosen.every((other) => !overlaps(other, clip))) {
       chosen.push({ start: clip.start, end: clip.end, source: "ai", aiScore: clip.score, title: clip.title, reason: clip.reason, kind: clip.kind });
     }
@@ -152,14 +191,14 @@ async function ollamaStatus(url = OLLAMA_URL, model = MODEL) {
   }
 }
 
-// One answer for one candidate: the raw JSON text from the model (parseAnswer validates it).
-async function askOllama(prompt, { url = OLLAMA_URL, model = MODEL, timeoutMs = ANSWER_TIMEOUT_MS } = {}) {
+// One model answer: the raw JSON text (parseAnswer / parseRanking validate it).
+async function askOllama(prompt, { url = OLLAMA_URL, model = MODEL, timeoutMs = ANSWER_TIMEOUT_MS, schema = ANSWER_SCHEMA } = {}) {
   const result = await fetchJson(`${url}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, prompt, stream: false, format: ANSWER_SCHEMA, keep_alive: "10m", options: { temperature: 0.2 } }),
+    body: JSON.stringify({ model, prompt, stream: false, format: schema, keep_alive: "10m", options: { temperature: 0.2 } }),
   }, timeoutMs);
   return result.response;
 }
 
-module.exports = { buildLines, buildPrompt, parseAnswer, pickFinal, ollamaStatus, askOllama, ANSWER_SCHEMA, MIN_CLIP, MAX_CLIP, MODEL };
+module.exports = { buildLines, buildPrompt, parseAnswer, buildRankPrompt, parseRanking, pickFinal, ollamaStatus, askOllama, ANSWER_SCHEMA, RANK_SCHEMA, MIN_CLIP, MAX_CLIP, MODEL };

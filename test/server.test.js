@@ -31,6 +31,14 @@ const fakeOllama = http.createServer((req, res) => {
     if (ollama.mode === "down") { res.writeHead(503); res.end(); return; }
     res.writeHead(200, { "Content-Type": "application/json" });
     if (req.url === "/api/tags") { res.end(JSON.stringify({ models: [{ name: "qwen2.5:7b" }] })); return; }
+    const request = JSON.parse(body);
+    if (request.format?.required?.includes("order")) {
+      // Ranking pass: best = the first candidate listed (so it differs from the per-candidate scores).
+      ollama.rankCalls = (ollama.rankCalls || 0) + 1;
+      const count = (request.prompt.match(/^\[\d+\]/gm) || []).length;
+      res.end(JSON.stringify({ response: JSON.stringify({ order: Array.from({ length: count }, (_, i) => i) }) }));
+      return;
+    }
     ollama.calls += 1;
     const lines = (JSON.parse(body).prompt.match(/^\[\d+\]/gm) || []).length;
     // Score grows with the call number so the pick is deterministic; span: lines 2..9 (~30 s).
@@ -218,8 +226,8 @@ test("a crash's leftovers (temp audio, orphan clips) are cleaned when the projec
   assert.equal(fs.existsSync(path.join(folder, "short-2-1.mp4")), false);
 });
 
-test("AI picks the moments: titles, reasons, 20–50 s clips, rank by AI score", async () => {
-  ollama.mode = "up"; ollama.calls = 0;
+test("AI picks the moments: titles, reasons, 20–50 s clips, rank by the AI's ranking pass", async () => {
+  ollama.mode = "up"; ollama.calls = 0; ollama.rankCalls = 0;
   setControl({ duration: 900 });
   const { status, body } = await post("/api/process", { url: URL_A });
   ollama.mode = "down";
@@ -234,8 +242,9 @@ test("AI picks the moments: titles, reasons, 20–50 s clips, rank by AI score",
     assert.ok(clip.end - clip.start >= 20 && clip.end - clip.start <= 50, `${clip.end - clip.start}`);
   }
   assert.deepEqual(body.clips.map((c) => c.rank).sort(), [1, 2, 3]);
-  const best = body.clips.find((c) => c.rank === 1);
-  assert.ok(body.clips.every((c) => Number(c.title.split(" ")[1]) <= Number(best.title.split(" ")[1])), "rank 1 = highest AI score");
+  // The ranking pass (best = first listed) decides, not the per-candidate scores (which grow).
+  assert.equal(body.clips.find((c) => c.rank === 1).title, "Titlu 1");
+  assert.equal(ollama.rankCalls, 1);
 });
 
 test("Ollama down: rules choose, the project still finishes, with a note", async () => {

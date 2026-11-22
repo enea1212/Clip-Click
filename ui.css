@@ -40,3 +40,6 @@
 .pause-hint{font-size:9px;color:#85887e;text-align:right}
 .project-row.incomplete{border-color:#594039}
 .project-row.incomplete .project-main span{color:#d99a86}
+.clip-reason{font-size:10px;line-height:1.5;color:var(--lime);margin:-2px 0 8px}
+.clip-reason.rules{color:#85887e;font-style:italic}
+.selection-note{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:#1b1d16;border:1px solid #353a28;border-radius:8px;font-size:11px;color:#b8baaf}

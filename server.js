@@ -269,6 +269,29 @@ function transcriptLanguage(project, folder) {
   try { return JSON.parse(fs.readFileSync(path.join(folder, "chunks", "chunk-0.json"), "utf8")).language || null; } catch { return null; }
 }
 
+// Ranking pass: the AI sees all its clips side by side and orders them (scored one by one, the
+// 7b model gives nearly all the same score). Cached in ai/ranking.json; on failure the
+// per-candidate scores decide, as before.
+async function rankWithAi(project, aiDir, aiClips, words) {
+  const file = path.join(aiDir, "ranking.json");
+  let order = null;
+  if (fs.existsSync(file)) {
+    ({ order } = JSON.parse(fs.readFileSync(file, "utf8")));
+  } else {
+    saveStage(project, { aiProgress: { ...project.aiProgress, ranking: true } });
+    const textOf = (clip) => words.filter((word) => word.start >= clip.start && word.start < clip.end).map((word) => word.word).join(" ");
+    try {
+      const raw = await AI.askOllama(AI.buildRankPrompt(aiClips.map((clip) => ({ title: clip.title, text: textOf(clip) }))), { schema: AI.RANK_SCHEMA });
+      order = AI.parseRanking(raw, aiClips.length);
+    } catch (error) {
+      console.warn(`[ai] clasarea: ${error.message}`);
+    }
+    P.writeJsonAtomic(file, { order });
+    saveStage(project, { aiProgress: { done: project.aiProgress.done, total: project.aiProgress.total } });
+  }
+  if (Array.isArray(order)) order.forEach((clipIndex, position) => { if (aiClips[clipIndex]) aiClips[clipIndex].order = position; });
+}
+
 // Stage "choosing": the AI scores 10 rule-preselected candidates (each answer saved in ai/, so
 // „Reia” only asks for the missing ones); the best 3 AI clips win, rules fill any gap. If the AI
 // isn't available the rules choose, exactly as before — processing never fails because of it.
@@ -306,6 +329,7 @@ async function chooseMoments(project, folder, words) {
     }
     saveStage(project, { aiProgress: { done, total: candidates.length } });
     if (!aiClips.length) note = "AI-ul n-a găsit momente potrivite";
+    if (aiClips.length >= 2) await rankWithAi(project, aiDir, aiClips, words);
   }
   const final = AI.pickFinal(aiClips, ruleClips);
   if (final.length < 3) throw permanent(new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente."));

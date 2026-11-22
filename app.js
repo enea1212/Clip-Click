@@ -76,7 +76,7 @@ async function openProject(id) {
       $("#video-label").textContent = project.title || "";
       return project.status === "failed"
         ? showMessage("error", "Proiect incomplet", `${project.error || ""} Îl poți relua din „Proiectele mele” cu „Reia”.`)
-        : (showMessage("loading", "Proiectul se procesează", STAGE_LABELS[project.status] || ""), refreshWhileOpen(() => openProject(id), token));
+        : (showMessage("loading", "Proiectul se procesează", stageLabel(project)), refreshWhileOpen(() => openProject(id), token));
     }
     renderProject(project);
   } catch (error) {
@@ -105,8 +105,10 @@ form.addEventListener("submit", async (event) => {
   label.textContent = "Verific videoclipul…";
   let transcribe = false;
   let estimate = 0;
+  let aiReady = false;
   try {
     const info = await api("/api/inspect", { method: "POST", body: { url } });
+    aiReady = info.ai?.ok === true;
     if (!info.hasSubtitles && !info.whisperAvailable) {
       throw new Error("Videoul nu are subtitrări, iar transcrierea locală nu e instalată. Instalează faster-whisper: python -m pip install --user faster-whisper");
     }
@@ -129,12 +131,14 @@ form.addEventListener("submit", async (event) => {
   label.textContent = "Analizez videoclipul...";
   showView("results");
   $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
+  const choose = aiReady ? "AI-ul alege momentele" : "alegem momentele după reguli (AI indisponibil)";
   $("#video-label").textContent = transcribe
-    ? "Descarcăm video-ul, îl transcriem cu Whisper și randăm clipurile."
-    : "Descarcăm video-ul, analizăm subtitrările și randăm clipurile.";
+    ? `Descarcăm video-ul, îl transcriem cu Whisper, ${choose} și randăm clipurile.`
+    : `Descarcăm video-ul, ${choose} și randăm clipurile.`;
+  const aiMinutes = aiReady ? " AI-ul mai adaugă cam 7–9 minute." : "";
   showMessage("loading", "Pregătim cele 3 Shorts", transcribe
-    ? `Transcrierea durează cam ${estimate} minute, plus descărcarea. Poți închide pagina: proiectul apare în „Proiectele mele” când e gata.`
-    : "Poate dura câteva minute, în funcție de lungimea videoclipului.");
+    ? `Transcrierea durează cam ${estimate} minute, plus descărcarea.${aiMinutes} Poți închide pagina: proiectul apare în „Proiectele mele” când e gata.`
+    : `Poate dura câteva minute, în funcție de lungimea videoclipului.${aiMinutes} Poți urmări progresul în „Proiectele mele”.`);
   const token = viewToken;
   try {
     const project = await api("/api/process", { method: "POST", body: { url, transcribe } });
@@ -183,8 +187,16 @@ async function showProjects() {
 const STAGE_LABELS = {
   downloading: "Se descarcă videoclipul…",
   transcribing: "Se transcrie cu Whisper…",
+  choosing: "AI notează momentele…",
   rendering: "Se randează clipurile…",
 };
+
+// Stage text, with the AI's progress while it scores candidates ("AI notează momentele: 4/10").
+function stageLabel(item) {
+  if (item.status === "choosing" && item.aiProgress?.ranking) return "AI compară momentele…";
+  if (item.status === "choosing" && item.aiProgress?.total) return `AI notează momentele: ${item.aiProgress.done}/${item.aiProgress.total}`;
+  return STAGE_LABELS[item.status] || "se procesează…";
+}
 
 function projectRow(item) {
   const date = escapeHtml(new Date(item.createdAt).toLocaleString("ro-RO"));
@@ -197,7 +209,7 @@ function projectRow(item) {
     detail = `incomplet — ${escapeHtml(item.error || "procesarea s-a oprit")}`;
     buttons = `<button class="text-button resume-project">Reia</button><button class="text-button danger delete-project">Șterge</button>`;
   } else if (item.status && item.status !== "ready") {
-    detail = escapeHtml(STAGE_LABELS[item.status] || "se procesează…");
+    detail = escapeHtml(stageLabel(item));
     buttons = "";
   } else {
     detail = `${item.clipCount} clipuri`;
@@ -261,7 +273,32 @@ function renderProject(project) {
   $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
   $("#video-label").textContent = project.title;
   grid.innerHTML = "";
+  if (project.selection === "reguli") grid.append(rulesNote(project));
   for (const clip of project.clips) grid.append(createCard(project, clip));
+}
+
+// Moments chosen by rules (AI unavailable): say why, and offer to choose again with the AI
+// (reuses the downloaded video and the transcript).
+function rulesNote(project) {
+  const note = document.createElement("div");
+  note.className = "selection-note";
+  note.innerHTML = `<span>Momente alese după reguli${project.selectionNote ? ` (AI indisponibil: ${escapeHtml(project.selectionNote)})` : ""}.</span>
+    <button class="text-button rechoose-button">Alege din nou cu AI</button>`;
+  $(".rechoose-button", note).addEventListener("click", async () => {
+    if (!confirm("Clipurile și setările lor (zoom, video jos, pauze) se refac. Continui?")) return;
+    const token = viewToken;
+    showMessage("loading", "AI alege din nou momentele", "Durează câteva minute. Poți închide pagina: proiectul se termină oricum.");
+    try {
+      const updated = await api(`/api/projects/${project.id}/rechoose`, { method: "POST", body: {} });
+      if (token === viewToken) renderProject(updated);
+    } catch (error) {
+      if (token === viewToken) {
+        alert(error.message);
+        openProject(project.id);
+      }
+    }
+  });
+  return note;
 }
 
 function createCard(project, clip) {
@@ -273,7 +310,11 @@ function createCard(project, clip) {
 
   function info() {
     const seconds = Number(clip.duration) || clip.end - clip.start;
-    return `<h3 class="clip-name">Short ${clip.n}</h3>
+    const why = clip.source === "ai" && clip.reason
+      ? `<p class="clip-reason">${escapeHtml(clip.reason)}</p>`
+      : clip.source === "reguli" ? `<p class="clip-reason rules">ales după reguli</p>` : "";
+    return `<h3 class="clip-name">${escapeHtml(clip.title || `Short ${clip.n}`)}</h3>
+      ${why}
       <p class="clip-description">${escapeHtml(clip.caption)}</p>
       <div class="clip-meta"><span>${escapeHtml(clip.time)} · ${Math.round(seconds)} s</span><span class="clip-score">${clip.rank ? `LOCUL ${Number(clip.rank)} DIN 3` : escapeHtml(clip.score || "")}</span></div>`;
   }
