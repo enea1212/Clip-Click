@@ -59,3 +59,10 @@ test("parseProbe: rotated phone video swaps width and height", () => {
 test("parseProbe: missing size throws a clear Romanian error", () => {
   assert.throws(() => R.parseProbe(JSON.stringify({ streams: [], format: {} })), /dimensiunile/);
 });
+
+test("clip with segments maps concat audio and uses the cut duration", () => {
+  const args = R.clipArgs({ ...base, split: false, segments: [{ start: 0.9, end: 2.1 }, { start: 2.9, end: 3.5 }] });
+  assert.ok(has(args, "-map", "[ca]"));
+  assert.ok(!args.includes("0:a?"));
+  assert.ok(has(args, "-t", "1.8"));
+});

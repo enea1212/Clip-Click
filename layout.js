@@ -18,11 +18,29 @@
     return { w: even(srcW * scale), h: even(srcH * scale) };
   }
 
-  function buildFilter({ srcW, srcH, zoom, split, subtitles }) {
+  const num = (value) => String(Math.round(value * 1000) / 1000);
+
+  // Optional pause cutting: keep only the speech segments (video + audio) and join them;
+  // the layout then reads [cv] instead of the raw source, and the audio comes from [ca].
+  function cutParts(segments) {
+    const parts = [];
+    let inputs = "";
+    segments.forEach((seg, i) => {
+      parts.push(`[0:v]trim=start=${num(seg.start)}:end=${num(seg.end)},setpts=PTS-STARTPTS[v${i}]`);
+      parts.push(`[0:a]atrim=start=${num(seg.start)}:end=${num(seg.end)},asetpts=PTS-STARTPTS[a${i}]`);
+      inputs += `[v${i}][a${i}]`;
+    });
+    parts.push(`${inputs}concat=n=${segments.length}:v=1:a=1[cv][ca]`);
+    return parts;
+  }
+
+  function buildFilter({ srcW, srcH, zoom, split, subtitles, segments }) {
     const box = boxFor(split);
     const size = zoomSize(srcW, srcH, box.w, box.h, zoom);
+    const cut = Array.isArray(segments) && segments.length > 0;
     const parts = [
-      "[0:v]split[a][b]",
+      ...(cut ? cutParts(segments) : []),
+      `${cut ? "[cv]" : "[0:v]"}split[a][b]`,
       `[a]scale=${box.w}:${box.h}:force_original_aspect_ratio=increase,crop=${box.w}:${box.h},boxblur=20:2,eq=brightness=-0.12[bg]`,
       `[b]scale=${size.w}:${size.h},crop=${Math.min(size.w, box.w)}:${Math.min(size.h, box.h)}[fg]`,
     ];
@@ -36,7 +54,7 @@
     return parts.join(";");
   }
 
-  const api = { CANVAS, boxFor, zoomSize, buildFilter };
+  const api = { CANVAS, boxFor, zoomSize, buildFilter, num };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else window.Layout = api;
 })();

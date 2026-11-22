@@ -46,3 +46,19 @@ test("filter with split: gameplay input stacked below the 1080x960 top", () => {
   assert.match(f, /vstack/);
   assert.match(f, /subtitles=captions-2\.ass\[v\]$/);
 });
+
+test("filter with segments trims, concats and feeds the layout", () => {
+  const segments = [{ start: 0.9, end: 2.1 }, { start: 2.9, end: 3.5 }];
+  const f = buildFilter({ srcW: 1920, srcH: 1080, zoom: 1, split: false, subtitles: "c.ass", segments });
+  assert.match(f, /trim=start=0\.9:end=2\.1/);
+  assert.match(f, /atrim=start=2\.9:end=3\.5/);
+  assert.match(f, /concat=n=2:v=1:a=1\[cv\]\[ca\]/);
+  assert.match(f, /\[cv\]split\[a\]\[b\]/);
+  assert.doesNotMatch(f, /\[0:v\]split/);
+});
+
+test("single segment still uses concat n=1", () => {
+  const f = buildFilter({ srcW: 1920, srcH: 1080, zoom: 1, split: true, subtitles: "c.ass", segments: [{ start: 1, end: 5 }] });
+  assert.match(f, /concat=n=1:v=1:a=1\[cv\]\[ca\]/);
+  assert.match(f, /vstack/);
+});

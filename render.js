@@ -1,15 +1,20 @@
 // Pure builders for ffmpeg/ffprobe argument arrays. ffmpeg runs with cwd = project folder,
 // so the source and subtitle files are bare names; the gameplay path goes through -i (never a filter).
-const { buildFilter } = require("./layout");
+const { buildFilter, num } = require("./layout");
+const { totalDuration } = require("./pauses");
 
 const SOURCE = "source.mp4";
 const ENCODE = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"];
 
-function clipArgs({ start, end, srcW, srcH, zoom, split, subtitles, satisfyingPath, satisfyingStart, output }) {
+// With `segments` (pause cutting, times relative to the clip start) the source is trimmed
+// to those segments, so the output is shorter and the audio comes from the concat.
+function clipArgs({ start, end, srcW, srcH, zoom, split, subtitles, satisfyingPath, satisfyingStart, output, segments }) {
+  const cut = Array.isArray(segments) && segments.length > 0;
   const inputs = ["-ss", String(start), "-i", SOURCE];
   if (split) inputs.push("-stream_loop", "-1", "-ss", String(satisfyingStart), "-i", satisfyingPath);
-  const graph = buildFilter({ srcW, srcH, zoom, split, subtitles });
-  return ["-y", ...inputs, "-t", String(end - start), "-filter_complex", graph, "-map", "[v]", "-map", "0:a?", ...ENCODE, output];
+  const graph = buildFilter({ srcW, srcH, zoom, split, subtitles, segments });
+  const length = cut ? num(totalDuration(segments)) : String(end - start);
+  return ["-y", ...inputs, "-t", length, "-filter_complex", graph, "-map", "[v]", "-map", cut ? "[ca]" : "0:a?", ...ENCODE, output];
 }
 
 function rawPreviewArgs({ start, end, output }) {
