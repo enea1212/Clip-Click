@@ -38,3 +38,5 @@
 .pause-row input{accent-color:var(--lime)}
 .pause-row input:disabled+*,.pause-row label:has(input:disabled){opacity:.55;cursor:not-allowed}
 .pause-hint{font-size:9px;color:#85887e;text-align:right}
+.project-row.incomplete{border-color:#594039}
+.project-row.incomplete .project-main span{color:#d99a86}

@@ -11,6 +11,10 @@ const P = require("./projects");
 const { resolveStatic, decodePath, parseRange, checkRequest } = require("./http-utils");
 const W = require("./whisper");
 const { speechSegments, remapWords, totalDuration } = require("./pauses");
+const { resumePlan, missingChunks, normalizeStatus, keepForResume } = require("./pipeline");
+
+// Errors that will happen again on every „Reia” (the video itself is the problem).
+const permanent = (error) => Object.assign(error, { permanent: true });
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
@@ -85,17 +89,26 @@ async function whisperWords(folder, { start, end, wav, language }) {
 
 // Whole video in 10-minute windows (bounded memory); the language detected on the first
 // window is reused so the whole transcript stays in one language.
+// Each finished window is saved in chunks/chunk-N.json, so „Reia” after a crash or a server
+// stop only transcribes the windows that are still missing.
 async function transcribeWholeVideo(folder, duration) {
   const plan = W.chunkPlan(duration);
-  const results = [];
+  const chunkDir = path.join(folder, "chunks");
+  fs.mkdirSync(chunkDir, { recursive: true });
+  const todo = new Set(missingChunks(plan, new Set(fs.readdirSync(chunkDir))));
+  const chunkFile = (index) => path.join(chunkDir, `chunk-${index}.json`);
   let language = null;
   for (const [index, chunk] of plan.entries()) {
+    if (!todo.has(index)) {
+      language = language || JSON.parse(fs.readFileSync(chunkFile(index), "utf8")).language;
+      continue;
+    }
     console.log(`[whisper] fragmentul ${index + 1}/${plan.length} (${Math.round(chunk.start / 60)}–${Math.round(chunk.end / 60)} min)`);
     const result = await whisperWords(folder, { start: chunk.start, end: chunk.end, wav: `chunk-${index}.wav`, language });
     language = language || result.language;
-    results.push({ chunk, words: result.words });
+    fs.writeFileSync(chunkFile(index), JSON.stringify({ language: result.language, words: result.words }), "utf8");
   }
-  return W.mergeChunks(results);
+  return W.mergeChunks(plan.map((chunk, index) => ({ chunk, words: JSON.parse(fs.readFileSync(chunkFile(index), "utf8")).words })));
 }
 
 const clipWordsFile = (folder, n) => path.join(folder, `words-${n}.json`);
@@ -175,73 +188,135 @@ async function processVideo(rawUrl, { transcribe = false } = {}) {
   try {
     if (transcribe && !(await whisperAvailable())) throw new UserError(W.WHISPER_MISSING);
     const id = randomUUID();
-    const folder = folderOf(id);
-    fs.mkdirSync(folder, { recursive: true });
-    try {
-      return await withLock(`${id}:process`, "Proiectul se procesează deja.", () => downloadAndBuild(id, folder, url, transcribe === true));
-    } catch (error) {
-      // A failed run leaves nothing usable, possibly a multi-GB source: clean it up.
-      try { fs.rmSync(folder, { recursive: true, force: true }); } catch { /* listed as incomplete; deletable later */ }
-      throw error;
-    }
+    fs.mkdirSync(folderOf(id), { recursive: true });
+    // Saved from the start so a failure or a server stop leaves a project that can be resumed.
+    P.saveProject(DATA_DIR, { id, title: "", url, transcribe: transcribe === true, createdAt: new Date().toISOString(), status: "downloading", clips: [] });
+    return await runPipeline(id, { firstRun: true });
   } finally {
     locks.releaseHeavy();
   }
 }
 
-async function downloadAndBuild(id, folder, url, transcribe) {
-  const outputTemplate = path.join(folder, "source.%(ext)s");
-  const printed = await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", "--write-auto-subs", "--write-subs", "--sub-langs", "ro,ro-orig,ro-RO,en,en-orig,en-US,en-GB", "--sub-format", "vtt/best", "-f", "bv*[height<=1080]+ba/b[height<=1080]", "--merge-output-format", "mp4", "-o", outputTemplate, "--print", "after_move:title", "--print", "after_move:filepath", url], { cwd: folder, windowsHide: true });
-  const title = printed.split(/\r?\n/)[0]?.trim() || "Video fără titlu";
-  const files = fs.readdirSync(folder);
-  const video = files.find((name) => /^source\.(mp4|mkv|webm)$/i.test(name));
-  const captions = files.filter((name) => name.startsWith("source.") && name.endsWith(".vtt")).map((name) => ({ name, text: fs.readFileSync(path.join(folder, name), "utf8") }));
-  if (!video) throw new UserError("YouTube nu a furnizat un fișier video compatibil.");
-  if (!transcribe && !captions.length) throw new UserError("Nu am găsit subtitrări pentru acest videoclip.");
-  // render.js reads "source.mp4"; ffmpeg detects the real container from the content.
-  if (video !== "source.mp4") fs.renameSync(path.join(folder, video), path.join(folder, "source.mp4"));
-  let track;
-  let words;
-  if (transcribe) {
-    // No original-language subtitles: transcribe the whole video (the user confirmed the estimate).
-    track = "whisper";
-    words = await transcribeWholeVideo(folder, (await probe("source.mp4", folder)).duration);
-    if (!words.length) throw new UserError("Whisper nu a găsit vorbire în acest videoclip.");
-  } else {
-    track = pickCaptionTrack(captions);
-    words = parseVttWords(captions.find((item) => item.name === track).text);
+// „Reia”: run only the stages that are still missing.
+async function resumeProject(id) {
+  const project = loadProject(id);
+  if (normalizeStatus(project, locks.isProjectBusy(id)).status !== "failed") throw new UserError("Proiectul nu trebuie reluat.");
+  if (!locks.acquireHeavy()) throw new UserError(BUSY_MESSAGE, 409);
+  try {
+    if (project.transcribe && !fs.existsSync(path.join(folderOf(id), "words.json")) && !(await whisperAvailable())) throw new UserError(W.WHISPER_MISSING);
+    return await runPipeline(id, { firstRun: false });
+  } finally {
+    locks.releaseHeavy();
   }
-  fs.writeFileSync(path.join(folder, "words.json"), JSON.stringify(words), "utf8");
-  const transcript = groupWords(words).map((group) => ({ start: group[0].start, end: group.at(-1).end, caption: group.map((item) => item.word).join(" ") }));
-  const chosen = chooseClips(transcript);
-  if (chosen.length < 3) throw new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente.");
-  const source = await probe("source.mp4", folder);
-  const project = {
-    id, title, url, createdAt: new Date().toISOString(), track, sourceWidth: source.width, sourceHeight: source.height,
-    clips: chosen.map((clip, index) => ({
-      n: index + 1, start: clip.start, end: clip.end,
-      time: `${timestamp(clip.start)} — ${timestamp(clip.end)}`,
-      score: `${Math.min(99, Math.round(70 + clip.score * 2))}%`,
-      caption: clip.entries.map((entry) => entry.caption).join(" ").slice(0, 180),
-      zoom: 1, satisfyingOn: false, satisfying: null, video: null, raw: null,
-    })),
-  };
-  for (const clip of project.clips) {
-    if (transcribe) {
-      // Already Whisper words: no second transcription, just this clip's slice.
-      fs.writeFileSync(clipWordsFile(folder, clip.n), JSON.stringify(words.filter((word) => word.end > clip.start && word.start < clip.end)), "utf8");
-      clip.wordsSource = "whisper";
-    } else {
-      Object.assign(clip, await prepareClipWords(folder, clip, words, W.trackLanguage(track)));
+}
+
+const saveStage = (project, changes) => { Object.assign(project, changes); P.saveProject(DATA_DIR, project); };
+
+// The whole processing, stage by stage. Every stage checks the files on disk (resumePlan)
+// and skips what is already done; progress is saved after each stage.
+async function runPipeline(id, { firstRun }) {
+  const folder = folderOf(id);
+  return withLock(`${id}:process`, "Proiectul se procesează deja.", async () => {
+    const project = loadProject(id);
+    try {
+      const filesNow = () => new Set(fs.readdirSync(folder));
+      let plan = resumePlan(project, filesNow());
+
+      if (plan.download) {
+        saveStage(project, { status: "downloading", error: undefined });
+        const outputTemplate = path.join(folder, "source.%(ext)s");
+        const printed = await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", "--write-auto-subs", "--write-subs", "--sub-langs", "ro,ro-orig,ro-RO,en,en-orig,en-US,en-GB", "--sub-format", "vtt/best", "-f", "bv*[height<=1080]+ba/b[height<=1080]", "--merge-output-format", "mp4", "-o", outputTemplate, "--print", "after_move:title", "--print", "after_move:filepath", project.url], { cwd: folder, windowsHide: true });
+        const video = fs.readdirSync(folder).find((name) => /^source\.(mp4|mkv|webm)$/i.test(name));
+        if (!video) throw new UserError("YouTube nu a furnizat un fișier video compatibil.");
+        // render.js reads "source.mp4"; ffmpeg detects the real container from the content.
+        if (video !== "source.mp4") fs.renameSync(path.join(folder, video), path.join(folder, "source.mp4"));
+        saveStage(project, { title: printed.split(/\r?\n/)[0]?.trim() || "Video fără titlu" });
+      }
+
+      plan = resumePlan(project, filesNow());
+      if (plan.words) {
+        saveStage(project, { status: "transcribing", error: undefined });
+        let words;
+        if (project.transcribe) {
+          // No original-language subtitles: transcribe the whole video (the user confirmed the estimate).
+          project.track = "whisper";
+          words = await transcribeWholeVideo(folder, (await probe("source.mp4", folder)).duration);
+          if (!words.length) throw permanent(new UserError("Whisper nu a găsit vorbire în acest videoclip."));
+        } else {
+          const readCaptions = () => fs.readdirSync(folder).filter((name) => name.startsWith("source.") && name.endsWith(".vtt")).map((name) => ({ name, text: fs.readFileSync(path.join(folder, name), "utf8") }));
+          let captions = readCaptions();
+          if (!captions.length) {
+            // Subtitles can be missing because YouTube refused them (HTTP 429), not because they
+            // don't exist: fetch only the subtitles again (no video), so „Reia” can succeed.
+            await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", "--skip-download", "--write-auto-subs", "--write-subs", "--sub-langs", "ro,ro-orig,ro-RO,en,en-orig,en-US,en-GB", "--sub-format", "vtt/best", "-o", path.join(folder, "source.%(ext)s"), project.url], { cwd: folder, windowsHide: true }).catch(() => {});
+            captions = readCaptions();
+          }
+          if (!captions.length) throw new UserError("Nu am găsit subtitrări pentru acest videoclip. Dacă YouTube a refuzat temporar descărcarea, încearcă „Reia” mai târziu.");
+          project.track = pickCaptionTrack(captions);
+          words = parseVttWords(captions.find((item) => item.name === project.track).text);
+        }
+        fs.writeFileSync(path.join(folder, "words.json"), JSON.stringify(words), "utf8");
+        saveStage(project, {});
+      }
+      const words = JSON.parse(fs.readFileSync(path.join(folder, "words.json"), "utf8"));
+
+      if (plan.choose) {
+        const transcript = groupWords(words).map((group) => ({ start: group[0].start, end: group.at(-1).end, caption: group.map((item) => item.word).join(" ") }));
+        const chosen = chooseClips(transcript);
+        if (chosen.length < 3) throw permanent(new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente."));
+        const source = await probe("source.mp4", folder);
+        saveStage(project, {
+          sourceWidth: source.width, sourceHeight: source.height,
+          clips: chosen.map((clip, index) => ({
+            n: index + 1, start: clip.start, end: clip.end,
+            time: `${timestamp(clip.start)} — ${timestamp(clip.end)}`,
+            score: `${Math.min(99, Math.round(70 + clip.score * 2))}%`,
+            caption: clip.entries.map((entry) => entry.caption).join(" ").slice(0, 180),
+            zoom: 1, satisfyingOn: false, satisfying: null, video: null, raw: null,
+          })),
+        });
+      }
+
+      saveStage(project, { status: "rendering", error: undefined });
+      for (const n of resumePlan(project, filesNow()).renderClips) {
+        const clip = project.clips[n - 1];
+        if (!fs.existsSync(clipWordsFile(folder, n))) {
+          if (project.transcribe) {
+            // Already Whisper words: no second transcription, just this clip's slice.
+            fs.writeFileSync(clipWordsFile(folder, n), JSON.stringify(words.filter((word) => word.end > clip.start && word.start < clip.end)), "utf8");
+            clip.wordsSource = "whisper";
+          } else {
+            Object.assign(clip, await prepareClipWords(folder, clip, words, W.trackLanguage(project.track)));
+          }
+          // Save at once: words-N.json now exists, so after a crash this step is skipped and
+          // wordsSource must already be on disk (it decides whether pauses can be cut).
+          saveStage(project, {});
+        }
+        const clipWords = JSON.parse(fs.readFileSync(clipWordsFile(folder, n), "utf8"));
+        const previous = clip.video;
+        Object.assign(clip, await renderClip(project, clip, clipWords, { zoom: 1, split: false, cutPauses: clip.wordsSource === "whisper" }));
+        removePublicFile(id, previous !== clip.video ? previous : null);
+        const raw = `raw-${n}.mp4`;
+        await run("ffmpeg", rawPreviewArgs({ start: clip.start, end: clip.end, output: raw }), { cwd: folder });
+        clip.raw = publicPath(id, raw);
+        saveStage(project, {});
+      }
+
+      saveStage(project, { status: "ready", error: undefined });
+      return project;
+    } catch (error) {
+      if (!keepForResume({ firstRun, hasSource: fs.existsSync(path.join(folder, "source.mp4")), permanent: error.permanent === true })) {
+        // Nothing to reuse, or „Reia” would hit the same error forever: don't keep GB on disk.
+        try { fs.rmSync(folder, { recursive: true, force: true }); } catch { /* listed as incomplete; deletable later */ }
+        if (!firstRun) error.message += " Proiectul a fost șters, pentru că reluarea n-ar schimba rezultatul.";
+        throw error;
+      }
+      // Keep everything done so far (possibly GB of video and hours of transcription).
+      try { saveStage(project, { status: "failed", error: error.message }); } catch { /* folder gone */ }
+      error.resumable = true;
+      throw error;
     }
-    const clipWords = JSON.parse(fs.readFileSync(clipWordsFile(folder, clip.n), "utf8"));
-    Object.assign(clip, await renderClip(project, clip, clipWords, { zoom: 1, split: false, cutPauses: clip.wordsSource === "whisper" }));
-    const raw = `raw-${clip.n}.mp4`;
-    await run("ffmpeg", rawPreviewArgs({ start: clip.start, end: clip.end, output: raw }), { cwd: folder });
-    clip.raw = publicPath(id, raw);
-  }
-  P.saveProject(DATA_DIR, project);
-  return project;
+  });
 }
 
 function loadProject(id) {
@@ -251,6 +326,7 @@ function loadProject(id) {
 }
 
 function clipOf(project, n) {
+  if (normalizeStatus(project, locks.isProjectBusy(project.id)).status !== "ready") throw new UserError("Proiectul nu e gata încă. Reia procesarea din „Proiectele mele”.");
   if (![1, 2, 3].includes(n) || !project.clips[n - 1]) throw new UserError("Clip invalid.");
   return project.clips[n - 1];
 }
@@ -342,14 +418,21 @@ function sendJson(res, status, data) {
 
 async function handleApi(req, res, pathname) {
   const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
+  const resumeMatch = pathname.match(/^\/api\/projects\/([^/]+)\/resume$/);
+  if (req.method === "POST" && resumeMatch) {
+    if (!P.isValidId(resumeMatch[1])) throw new UserError("Proiect invalid.");
+    return resumeProject(resumeMatch[1]);
+  }
   if (req.method === "POST" && pathname === "/api/inspect") return inspectVideo((await readJson(req)).url);
   if (req.method === "POST" && pathname === "/api/process") {
     const body = await readJson(req);
     return processVideo(body.url, { transcribe: body.transcribe === true });
   }
-  if (req.method === "GET" && pathname === "/api/projects") return P.listProjects(DATA_DIR);
+  if (req.method === "GET" && pathname === "/api/projects") {
+    return P.listProjects(DATA_DIR).map((item) => (item.legacy ? item : normalizeStatus(item, locks.isProjectBusy(item.id))));
+  }
   if (projectMatch && !P.isValidId(projectMatch[1])) throw new UserError("Proiect invalid.");
-  if (req.method === "GET" && projectMatch) return loadProject(projectMatch[1]);
+  if (req.method === "GET" && projectMatch) return normalizeStatus(loadProject(projectMatch[1]), locks.isProjectBusy(projectMatch[1]));
   if (req.method === "DELETE" && projectMatch) {
     if (locks.isProjectBusy(projectMatch[1])) throw new UserError("Proiectul se procesează sau se randează acum. Încearcă după ce termină.", 409);
     try {
@@ -380,7 +463,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, await handleApi(req, res, pathname));
     } catch (error) {
       console.error(`[${req.method} ${pathname}] ${error.message}`);
-      sendJson(res, error.status || 400, { error: error.message || "Procesarea a eșuat." });
+      sendJson(res, error.status || 400, { error: error.message || "Procesarea a eșuat.", ...(error.resumable ? { resumable: true } : {}) });
     }
     return;
   }
