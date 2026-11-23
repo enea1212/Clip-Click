@@ -8,17 +8,17 @@ const ENCODE = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-c:a", 
 
 // With `segments` (pause cutting, times relative to the clip start) the source is trimmed
 // to those segments, so the output is shorter and the audio comes from the concat.
-function clipArgs({ start, end, srcW, srcH, zoom, split, subtitles, satisfyingPath, satisfyingStart, output, segments }) {
+function clipArgs({ start, end, srcW, srcH, zoom, split, subtitles, satisfyingPath, satisfyingStart, output, segments, sourceFile = SOURCE }) {
   const cut = Array.isArray(segments) && segments.length > 0;
-  const inputs = ["-ss", String(start), "-i", SOURCE];
+  const inputs = ["-ss", String(start), "-i", sourceFile];
   if (split) inputs.push("-stream_loop", "-1", "-ss", String(satisfyingStart), "-i", satisfyingPath);
   const graph = buildFilter({ srcW, srcH, zoom, split, subtitles, segments });
   const length = cut ? num(totalDuration(segments)) : String(end - start);
   return ["-y", ...inputs, "-t", length, "-filter_complex", graph, "-map", "[v]", "-map", cut ? "[ca]" : "0:a?", ...ENCODE, output];
 }
 
-function rawPreviewArgs({ start, end, output }) {
-  return ["-y", "-ss", String(start), "-i", SOURCE, "-t", String(end - start), "-vf", "scale=640:-2", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", output];
+function rawPreviewArgs({ start, end, output, sourceFile = SOURCE }) {
+  return ["-y", "-ss", String(start), "-i", sourceFile, "-t", String(end - start), "-vf", "scale=640:-2", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", output];
 }
 
 function satPreviewArgs({ satisfyingPath, satisfyingStart, length, output }) {

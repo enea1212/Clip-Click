@@ -53,3 +53,15 @@
 - Navigarea către proiecte rămâne vizibilă pe mobil; ecranele de procesare, rezultate și listă au texte mai explicite.
 - Se păstrează paleta existentă.
 **Branch:** `feature/clipclick-interface`.
+## 2026-11-23 — Descărcarea doar a audio-ului și a segmentelor alese
+**Obiectiv:** evitarea descărcării întregului video, păstrând transcrierea, analiza volumului, alegerea AI și editarea după procesare.
+**Făcut:**
+- Branch separat `feature/partial-media-downloads`, pornit din `main`.
+- Pipeline-ul descarcă întâi formatul audio original comprimat și subtitrările. Whisper, analiza de volum și alegerea momentelor folosesc fișierul audio.
+- După alegerea momentelor descarcă doar trei secțiuni cu yt-dlp `--download-sections`, fiecare cu 5 s de rezervă la început și la sfârșit și tăieturi precise.
+- Randează și re-randează din fișierul secțiunii locale; „Aplică” nu are nevoie de video-ul complet. „Alege din nou cu AI” reutilizează audio-ul și șterge secțiunile vechi înainte de a descărca altele.
+- Păstrează reluarea după întrerupere și compatibilitatea proiectelor vechi care au `source.mp4`.
+- Actualizate mesajele și progresul din interfață; actualizat acest fișier și „Unde am rămas” din `CLAUDE.md`.
+**Verificare:** testele automate nu au fost rulate în această sesiune.
+**Următorul pas:** review și merge pe branch-ul lui, apoi verifică exporturile pe stream-ul GTA. Urmează estimarea descărcării inițiale și alte îmbunătățiri din lista propusă, dacă rămân prioritare.
+**Conversație:** sesiune Codex în VS Code (d:\AI_SLOP).

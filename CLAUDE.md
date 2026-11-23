@@ -30,7 +30,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `subtitles.js`: VTT → cuvinte, grupare, fișier `.ass` karaoke. `clips.js`: alegerea celor 3 momente. `pauses.js`: segmente de vorbire și mutarea cuvintelor pe cronologia tăiată.
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
 - `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
-- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `loudness.js`: volum pe secundă, vârfuri, amestec de candidați. `test/`: testele (150, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
+- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `loudness.js`: volum pe secundă, vârfuri, amestec de candidați. `test/`: testele (154, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
 
@@ -42,6 +42,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Video de 6 h (stream): descărcare 6,7 GB în ~5 min; transcriere completă estimată la ~166 min.
 - AI (`qwen2.5:7b`, CPU): ~60 s/candidat. TED 14 min: 464 s total. Stream GTA 6 h, din subtitrări existente: 939 s total (analiză volum + 10 candidați + clasare + 3 randări).
 - Analiza volumului pe 6 h: 47 s. Vârfuri mari care ajung la AI pe GTA: 1/12 → 6/12 cu preselecția după sunet.
+- Descărcare parțială, TED 14 min (reguli, fără AI): 293 s total; audio 13 MB + 3 segmente ~30 MB, proiect 71 MB. Segmentele sunt sincronizate cu audio-ul la 1 ms (corelație), A/V pornesc amândouă de la 0.
 
 ## Capcane cunoscute
 - `faster-whisper` 1.2.1 + `av` 19 crapă (`open()` nu mai acceptă `metadata_errors`). Ocolire: `transcribe.py` citește WAV-ul cu `wave` + numpy și îi dă lui Whisper eșantioanele.
@@ -69,10 +70,12 @@ Pe `feature/clipclick-interface` se lucrează la interfață și la redenumirea 
 
 Primul test real pe stream (GTA 6 h, proiect `data/eafb540b…`, video legat prin hardlink din `data/29520ba6…`, deci fără 6,7 GB în plus): **locurile 1 și 2 alese de AI vin din vârfurile de sunet** (5:35:59 „Never Getting the Good Ending”, 5:54:03 „It Worked! Then Faked It”), locul 3 din vorbire. Enea încă n-a verificat dacă momentele sunt bune.
 
+Descărcarea parțială (PR pe `feature/partial-media-downloads`): proiectele noi au `mediaMode: "segments"`: audio comprimat (`source.webm`) + subtitrări, apoi cele trei segmente video (`segment-N.mp4`, câte 5 s rezervă). „Aplică” folosește segmentul; „Alege din nou cu AI” refolosește audio-ul și descarcă segmentele noi (are nevoie de internet). Proiectele vechi cu `source.mp4` merg ca înainte.
+
 ### Următoarele sarcini (cerute de Enea pe 2026-11-23, în ordinea asta, fiecare pe branch-ul ei)
 1. ~~Actualizarea documentației~~ (făcută la salvarea contextului).
 2. ~~**Limită totală de timp pentru etapa AI**~~ (făcută pe `feature/limita-ai`). (~12 min). Ce nu apucă AI-ul se completează din reguli; estimarea se afișează la pornire, ca la Whisper. Acum, în cel mai rău caz, etapa depășește 30 min și blochează singurul job greu.
-3. **Descărcarea doar a bucăților necesare.** Întâi doar audio (+ subtitrări), suficient pentru transcriere, analiza volumului și AI; apoi doar cele 3 segmente video (yt-dlp `--download-sections`), plus fereastra pentru „Aplică”. Pe stream-ul de 6 h: 6,7 GB → câteva sute de MB. De gândit: cum se comportă „Aplică”/zoom și „Alege din nou cu AI”, care acum refolosesc `source.mp4`.
+3. ~~**Descărcarea doar a bucăților necesare.**~~ (făcută pe `feature/partial-media-downloads`) Întâi doar audio (+ subtitrări), suficient pentru transcriere, analiza volumului și AI; apoi doar cele 3 segmente video (yt-dlp `--download-sections`), plus fereastra pentru „Aplică”. Pe stream-ul de 6 h: 6,7 GB → câteva sute de MB. De gândit: cum se comportă „Aplică”/zoom și „Alege din nou cu AI”, care acum refolosesc `source.mp4`.
 
 ### După aceea (propuse, neprioritizate)
 - Clasarea AI să vadă tot textul clipului, nu doar titlul + primele 40 de cuvinte.

@@ -147,7 +147,8 @@ test("Whisper crash mid-way keeps the project; Reia redoes only the missing wind
   assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
   assert.equal(resumed.body.status, "ready");
   const log = calls();
-  assert.equal(log.filter((line) => line.startsWith("python -m yt_dlp")).length, 0, "no re-download");
+  // The audio is reused; only the 3 video sections of the (re)chosen moments are fetched.
+  assert.equal(log.filter((line) => line.startsWith("python -m yt_dlp") && !line.includes("--download-sections")).length, 0, "no audio re-download");
   assert.equal(log.filter((line) => /transcribe\.py chunk-/.test(line)).length, 1, "only the missing window");
 });
 
@@ -308,7 +309,9 @@ test("Alege din nou cu AI: refused while Ollama is down (clips untouched), works
   ollama.mode = "down";
   assert.equal(redone.status, 200, JSON.stringify(redone.body));
   assert.equal(redone.body.selection, "ai");
-  assert.equal(calls().filter((line) => line.startsWith("python -m yt_dlp")).length, 0, "no re-download");
+  const downloads = calls().filter((line) => line.startsWith("python -m yt_dlp"));
+  assert.equal(downloads.filter((line) => !line.includes("--download-sections")).length, 0, "no audio re-download");
+  assert.equal(downloads.length, 3, "one video section per new moment");
   for (const clip of made.body.clips) assert.equal(fs.existsSync(path.join(DATA, made.body.id, clip.video.split("/").pop())), false, "old clip files removed");
 });
 
@@ -386,4 +389,73 @@ test("AI time budget: a slow Ollama is cut off, rules fill, unasked candidates a
   const cached = fs.readdirSync(path.join(DATA, body.id, "ai")).filter((name) => name.startsWith("candidate-"));
   assert.ok(cached.length < 10 && cached.length <= ollama.calls, `cached ${cached.length}, calls ${ollama.calls}`);
   assert.equal(body.aiProgress.deadline, undefined);
+});
+
+test("partial downloads: audio first, then only the 3 chosen sections (±5 s); clips render from their section", async () => {
+  ollama.mode = "down";
+  setControl({ duration: 900 });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  assert.equal(status, 200, JSON.stringify(body));
+  const folder = path.join(DATA, body.id);
+  const downloads = calls().filter((line) => line.startsWith("python -m yt_dlp") && !line.includes("--dump-json"));
+  assert.equal(downloads.length, 4, downloads.join("\n"));
+  assert.ok(!downloads[0].includes("--download-sections") && / -f ba /.test(downloads[0]), "first: audio only");
+  assert.ok(downloads.slice(1).every((line) => line.includes("--download-sections") && line.includes("--force-keyframes-at-cuts")));
+  assert.equal(fs.existsSync(path.join(folder, "source.mp4")), false, "no full video");
+  const saved = JSON.parse(fs.readFileSync(path.join(folder, "project.json"), "utf8"));
+  assert.equal(saved.mediaMode, "segments");
+  assert.equal(saved.audioFile, "source.webm");
+  const log = calls();
+  for (const clip of saved.clips) {
+    assert.equal(clip.sourceFile, `segment-${clip.n}.mp4`);
+    assert.equal(clip.segmentStart, Math.max(0, clip.start - 5));
+    assert.equal(clip.segmentEnd, Math.min(900, clip.end + 5));
+    const render = log.find((line) => line.startsWith("ffmpeg") && line.includes(` short-${clip.n}-`));
+    assert.ok(render.includes(`-ss ${clip.start - clip.segmentStart} -i segment-${clip.n}.mp4`), render);
+    const clipAudio = log.find((line) => line.startsWith("ffmpeg") && line.includes(`clip-${clip.n}.wav`));
+    assert.ok(clipAudio.includes("-i source.webm"), clipAudio);
+  }
+  // „Aplică” renders from the section too, with no download.
+  setControl({ duration: 900 });
+  const applied = await post("/api/render", { id: body.id, clip: 2, zoom: 0.5, satisfying: false });
+  assert.equal(applied.status, 200, JSON.stringify(applied.body));
+  assert.equal(calls().filter((line) => line.startsWith("python -m yt_dlp")).length, 0);
+  assert.ok(calls().some((line) => line.startsWith("ffmpeg") && line.includes("-i segment-2.mp4")));
+});
+
+test("Reia after a failed section download fetches only the missing sections", async () => {
+  ollama.mode = "down";
+  const flag = path.join(work, "section-fail-once");
+  fs.writeFileSync(flag, "");
+  setControl({ duration: 900, sectionFailsOnce: { flag, segment: 2 } });
+  const before = new Set(folders());
+  const failed = await post("/api/process", { url: URL_A });
+  assert.equal(failed.status, 400, JSON.stringify(failed.body));
+  assert.equal(failed.body.resumable, true);
+  const id = folders().find((name) => !before.has(name));
+  assert.ok(fs.existsSync(path.join(DATA, id, "segment-1.mp4")), "the section before the failure is kept");
+  setControl({ duration: 900 });
+  const resumed = await post(`/api/projects/${id}/resume`, {});
+  assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+  assert.equal(resumed.body.status, "ready");
+  const downloads = calls().filter((line) => line.startsWith("python -m yt_dlp"));
+  assert.equal(downloads.length, 2, downloads.join("\n"));
+  assert.ok(downloads[0].includes("segment-2.") && downloads[1].includes("segment-3."));
+});
+
+test("old projects with a full source.mp4 (no mediaMode) still render from it", async () => {
+  ollama.mode = "down";
+  setControl({ duration: 900 });
+  const made = await post("/api/process", { url: URL_A });
+  const folder = path.join(DATA, made.body.id);
+  const project = JSON.parse(fs.readFileSync(path.join(folder, "project.json"), "utf8"));
+  delete project.mediaMode; delete project.audioFile;
+  for (const clip of project.clips) { delete clip.sourceFile; delete clip.segmentStart; delete clip.segmentEnd; }
+  fs.writeFileSync(path.join(folder, "project.json"), JSON.stringify(project));
+  fs.writeFileSync(path.join(folder, "source.mp4"), "fake video");
+  setControl({ duration: 900 });
+  const applied = await post("/api/render", { id: made.body.id, clip: 1, zoom: 0.5, satisfying: false });
+  assert.equal(applied.status, 200, JSON.stringify(applied.body));
+  const render = calls().find((line) => line.startsWith("ffmpeg") && line.includes(" short-1-"));
+  assert.ok(render.includes(`-ss ${project.clips[0].start} -i source.mp4`), render);
 });

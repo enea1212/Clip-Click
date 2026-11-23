@@ -9,8 +9,8 @@ const MERGE_GAP = 8;   // seconds: louder seconds this close form one event
 const BEFORE = 40;     // the candidate window starts this long before the peak (the build-up)
 
 // ffmpeg: audio only, one RMS level per second (16 kHz × 16000 samples) printed to `output`.
-function loudnessArgs(output) {
-  return ["-v", "error", "-nostdin", "-i", "source.mp4", "-vn", "-af",
+function loudnessArgs(output, source = "source.mp4") {
+  return ["-v", "error", "-nostdin", "-i", source, "-vn", "-af",
     `aresample=16000,asetnsamples=n=16000:p=0,astats=metadata=1:reset=1,ametadata=mode=print:key=lavfi.astats.Overall.RMS_level:file=${output}`,
     "-f", "null", "-"];
 }
