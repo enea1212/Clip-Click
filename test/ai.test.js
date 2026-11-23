@@ -168,3 +168,23 @@ test("buildPrompt adds a hint when the candidate is around a loud moment", () =>
   assert.match(A.buildPrompt(LINES, { language: "en", loudAt: 125 }), /audio gets suddenly loud around 02:05/);
   assert.doesNotMatch(A.buildPrompt(LINES, { language: "en" }), /suddenly loud/);
 });
+
+test("timeLeft caps one answer at 3 min and at the time left minus the reserve", () => {
+  assert.equal(A.timeLeft(1_000_000, 0), 180_000);
+  assert.equal(A.timeLeft(100_000, 0, 20_000), 80_000);
+  assert.equal(A.timeLeft(100_000, 90_000, 20_000), -10_000);
+});
+
+test("askOrder alternates speech and loud, leftovers at the end", () => {
+  const s = {};
+  const L = { origin: "loud" };
+  assert.deepEqual(A.askOrder([s, s, s, s, s, L, L, L, L, L]), [0, 5, 1, 6, 2, 7, 3, 8, 4, 9]);
+  assert.deepEqual(A.askOrder([s, s, L]), [0, 2, 1]);
+  assert.deepEqual(A.askOrder([L, L, s]), [2, 0, 1]);
+  assert.deepEqual(A.askOrder([]), []);
+});
+
+test("AI budget: 12 minutes by default, a sixth kept for the ranking pass", () => {
+  assert.equal(A.AI_BUDGET_MS, 720_000);
+  assert.equal(A.RANK_RESERVE_MS, 120_000);
+});

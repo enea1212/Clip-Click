@@ -76,3 +76,11 @@ test("mixCandidates: a loud moment inside an already chosen window marks that wi
   assert.equal(mixed.length, 1);
   assert.equal(mixed[0].loudAt, 450);
 });
+
+test("mixCandidates: windows made from loud peaks are marked origin loud, speech windows are not", () => {
+  const speech = Array.from({ length: 10 }, (_, i) => ({ start: i * 100, end: i * 100 + 75, score: 10 - i }));
+  const events = [{ start: 2040, end: 2045, peak: 20, score: 40 }, { start: 30, end: 32, peak: 18, score: 30 }];
+  const mixed = L.mixCandidates(speech, events, { count: 10, speech: 5, length: 75, duration: 4000 });
+  assert.deepEqual(mixed.filter((c) => c.origin === "loud").map((c) => c.start), [2000]);
+  assert.equal(mixed.find((c) => c.start === 0).origin, undefined, "a hinted speech window stays speech");
+});
