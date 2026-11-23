@@ -192,7 +192,7 @@ async function inspectVideo(rawUrl) {
   const url = safeUrl(rawUrl);
   if (!url) throw new UserError("Te rog introdu un link https valid de YouTube.");
   const info = JSON.parse(await run("python", ["-m", "yt_dlp", "--no-playlist", "--no-warnings", "--skip-download", "--dump-json", url], { windowsHide: true }));
-  return { title: info.title || "", duration: Number(info.duration) || 0, hasSubtitles: W.hasOriginalSubtitles(info), estimateMinutes: W.estimateMinutes(info.duration), whisperAvailable: await whisperAvailable(), ai: await AI.ollamaStatus() };
+  return { title: info.title || "", duration: Number(info.duration) || 0, hasSubtitles: W.hasOriginalSubtitles(info), estimateMinutes: W.estimateMinutes(info.duration), whisperAvailable: await whisperAvailable(), ai: await AI.ollamaStatus(), aiMinutes: Math.ceil(AI.AI_BUDGET_MS / 60_000) };
 }
 
 async function processVideo(rawUrl, { transcribe = false } = {}) {
@@ -305,16 +305,17 @@ function transcriptLanguage(project, folder) {
 // Ranking pass: the AI sees all its clips side by side and orders them (scored one by one, the
 // 7b model gives nearly all the same score). Cached in ai/ranking.json; on failure the
 // per-candidate scores decide, as before.
-async function rankWithAi(project, aiDir, aiClips, words) {
+async function rankWithAi(project, aiDir, aiClips, words, timeoutMs) {
   const file = path.join(aiDir, "ranking.json");
   const key = aiClips.map((clip) => `${clip.start}-${clip.end}`).join(",");
   const cached = readJsonOrNull(file);
   let order = cached && cached.key === key ? cached.order : null;
-  if (!cached || cached.key !== key) {
+  // Out of time (AI budget): the per-candidate scores decide, nothing is cached.
+  if ((!cached || cached.key !== key) && timeoutMs > 0) {
     saveStage(project, { aiProgress: { ...project.aiProgress, ranking: true } });
     const textOf = (clip) => words.filter((word) => word.start >= clip.start && word.start < clip.end).map((word) => word.word).join(" ");
     try {
-      const raw = await AI.askOllama(AI.buildRankPrompt(aiClips.map((clip) => ({ title: clip.title, text: textOf(clip) }))), { schema: AI.RANK_SCHEMA });
+      const raw = await AI.askOllama(AI.buildRankPrompt(aiClips.map((clip) => ({ title: clip.title, text: textOf(clip) }))), { schema: AI.RANK_SCHEMA, timeoutMs });
       order = AI.parseRanking(raw, aiClips.length);
       // Only a real answer is cached; a timeout or a crashed Ollama is retried on „Reia”.
       P.writeJsonAtomic(file, { key, order });
@@ -345,7 +346,11 @@ async function chooseMoments(project, folder, words) {
     const language = transcriptLanguage(project, folder);
     let done = 0;
     let unanswered = 0;
-    for (const [index, candidate] of candidates.entries()) {
+    let outOfTime = false;
+    // The budget starts here (after the loudness analysis); cached answers cost nothing.
+    const deadline = Date.now() + AI.AI_BUDGET_MS;
+    for (const index of AI.askOrder(candidates)) {
+      const candidate = candidates[index];
       const file = path.join(aiDir, `candidate-${index}.json`);
       // Cache entries carry their window, so answers never get matched to a different candidate.
       const cached = readJsonOrNull(file);
@@ -354,10 +359,12 @@ async function chooseMoments(project, folder, words) {
       if (cached && cached.start === candidate.start && cached.end === candidate.end && cached.loudAt === candidate.loudAt) {
         ({ clip } = cached);
       } else {
-        saveStage(project, { aiProgress: { done, total: candidates.length } });
+        const timeoutMs = AI.timeLeft(deadline, Date.now(), AI.RANK_RESERVE_MS);
+        if (timeoutMs <= 0) { outOfTime = true; break; }
+        saveStage(project, { aiProgress: { done, total: candidates.length, deadline } });
         const lines = AI.buildLines(words, candidate.start, candidate.end);
         try {
-          clip = lines.length ? AI.parseAnswer(await AI.askOllama(AI.buildPrompt(lines, { language, loudAt: candidate.loudAt })), lines) : null;
+          clip = lines.length ? AI.parseAnswer(await AI.askOllama(AI.buildPrompt(lines, { language, loudAt: candidate.loudAt }), { timeoutMs }), lines) : null;
           // Only real answers are cached (an unusable answer too, as null): a timeout or a crashed
           // Ollama is retried on „Reia” instead of being remembered as "no moment here".
           P.writeJsonAtomic(file, { start: candidate.start, end: candidate.end, loudAt: candidate.loudAt, clip });
@@ -373,9 +380,11 @@ async function chooseMoments(project, folder, words) {
       done += 1;
     }
     saveStage(project, { aiProgress: { done, total: candidates.length } });
-    if (!aiClips.length) note = candidates.length === 0 ? "videoclipul e prea scurt pentru AI" : unanswered ? "AI-ul nu a răspuns" : "AI-ul n-a găsit momente potrivite";
+    if (candidates.length === 0) note = "videoclipul e prea scurt pentru AI";
+    else if (outOfTime) note = `AI-ul a avut timp pentru ${done} din ${candidates.length} momente`;
+    else if (!aiClips.length) note = unanswered ? "AI-ul nu a răspuns" : "AI-ul n-a găsit momente potrivite";
     else if (unanswered) note = "AI-ul nu a răspuns la toate momentele";
-    if (aiClips.length >= 2) await rankWithAi(project, aiDir, aiClips, words);
+    if (aiClips.length >= 2) await rankWithAi(project, aiDir, aiClips, words, AI.timeLeft(deadline, Date.now()));
   }
   // chooseFinal falls back to the rules if AI clips crowd them out (a permanent error here would
   // delete the project, even a finished one on „Alege din nou cu AI”).

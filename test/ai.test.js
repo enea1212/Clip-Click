@@ -188,3 +188,7 @@ test("AI budget: 12 minutes by default, a sixth kept for the ranking pass", () =
   assert.equal(A.AI_BUDGET_MS, 720_000);
   assert.equal(A.RANK_RESERVE_MS, 120_000);
 });
+
+test("timeLeft is a whole number of ms (AbortSignal.timeout rejects fractions)", () => {
+  assert.equal(A.timeLeft(4000, 0, 4000 / 6), 3333);
+});

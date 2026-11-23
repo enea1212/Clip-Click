@@ -198,7 +198,8 @@ const RANK_RESERVE_MS = AI_BUDGET_MS / 6;
 
 // Timeout for the next answer: at most 3 min, and never past the deadline minus `reserve`.
 // ≤ 0 means: don't ask any more.
-const timeLeft = (deadline, now, reserve = 0) => Math.min(ANSWER_TIMEOUT_MS, deadline - now - reserve);
+// Whole ms: AbortSignal.timeout rejects fractions.
+const timeLeft = (deadline, now, reserve = 0) => Math.floor(Math.min(ANSWER_TIMEOUT_MS, deadline - now - reserve));
 
 // Order in which to ask the candidates: speech and loud windows alternate (speech first), so a
 // budget cut keeps the mix instead of dropping all loud windows, which come last in the list.
