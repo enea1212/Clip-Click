@@ -25,7 +25,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Node 24, Python 3.12 (`yt-dlp`, `faster-whisper` 1.2.1 + modelul `small`, int8), ffmpeg 2026 (în PATH).
 - Pornire: `node server.js` → http://localhost:4173. Teste: `node --test` (fără argument de folder: `node --test test/` nu merge pe Node 24/Windows).
 - Instalare Whisper: `python -m pip install --user faster-whisper`.
-- Povești animate: `python studio/setup.py` (o dată, ~10 min): creează `studio/venv` (1,5 GB) și `models/` (5,2 GB: SD-Turbo convertit la OpenVINO, Kokoro, Piper RO). Teste Python: `studioenv\Scripts\python -m unittest discover -s studio/tests`. Un video: `node story.js <folder cu story.json> [--preview]`; exemplu în `docs/examples/speed-camera/`.
+- Povești animate: `python studio/setup.py` (o dată, ~10 min): creează `studio/venv` (1,5 GB) și `models/` (5,2 GB: SD-Turbo convertit la OpenVINO, Kokoro, Piper RO). Teste Python: `studio/venv/Scripts/python -m unittest discover -s studio/tests`. Un video: `node story.js <folder cu story.json> [--preview]`; exemplu în `docs/examples/speed-camera/`.
 
 ## Structura repo-ului
 - `server.js`: HTTP și API (`/api/inspect`, `/api/process`, `/api/projects[/<id>]`, `/api/satisfying`, `/api/render`), job-uri ffmpeg/yt-dlp/Whisper, blocări per clip.
