@@ -15,6 +15,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **Un singur video procesat odată**: al doilea e refuzat cu mesaj, fără coadă (A). Procesarea căzută sau întreruptă se reia manual cu „Reia”, nu automat.
 - **Momente alese cu AI local** (Ollama `qwen2.5:7b`, gratuit, A), pentru streamuri și podcasturi (C), lungime naturală 20–50 s la limită de frază (A, lărgită în cod la ≥ 30 s), 10 candidați (B), preselecție după reguli + AI (1). Fără Ollama → reguli, fără eroare.
 - 2026-11-23 — **Plafon de 12 min pentru etapa AI** (A): termen-limită pe toată etapa, 1/6 păstrat pentru clasare; candidații se întreabă alternat vorbire/sunet, ca o tăiere să păstreze amestecul; ce nu apucă AI-ul → reguli, cu nota „AI-ul a avut timp pentru X din 10 momente”. Răspunsurile din cache nu consumă din plafon. Teste: `CLIPTREI_AI_BUDGET_MS`.
+- 2026-11-23 — **Povești animate din scenariu** (issue #18, design `docs/superpowers/specs/2026-11-23-povesti-animate-design.md`): povești scurte pentru TikTok, EN principal + RO. Decoruri fixe cu mișcare de cameră (nu mișcare 3D reală), generate local cu SD-Turbo pe Iris Xe (OpenVINO), înlocuibile. Personaje 2D desenate de cod. Voci gata făcute (Kokoro EN, Piper RO); **fără imitarea vocii unor persoane reale**; clonarea vocii amânată (licențe necomerciale). AI-ul nu rescrie textul lui Enea.
 - 2026-11-23 — **Preselecția AI: 5 după vorbire + 5 după vârfurile de sunet (A)**: pe GTA, regulile după vorbire ratau 11 din 12 reacții puternice.
 - Git: repo `enea1212/Clip-Click` (public), branch `main`. **Din 2026-11-23 lucrăm în doi: regulile sunt în `CONTRIBUTING.md`.** Pe scurt: fiecare sarcină e un issue cu responsabil, un branch pe sarcină, nimic direct pe `main`, PR cu `node --test` verde și review de la celălalt înainte de merge. Deciziile noi se scriu aici cu data și cine le-a luat.
 - Conversația cu Claude se ține în română.
@@ -24,6 +25,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Node 24, Python 3.12 (`yt-dlp`, `faster-whisper` 1.2.1 + modelul `small`, int8), ffmpeg 2026 (în PATH).
 - Pornire: `node server.js` → http://localhost:4173. Teste: `node --test` (fără argument de folder: `node --test test/` nu merge pe Node 24/Windows).
 - Instalare Whisper: `python -m pip install --user faster-whisper`.
+- Povești animate: `python studio/setup.py` (o dată, ~10 min): creează `studio/venv` (1,5 GB) și `models/` (5,2 GB: SD-Turbo convertit la OpenVINO, Kokoro, Piper RO). Teste Python: `studioenv\Scripts\python -m unittest discover -s studio/tests`. Un video: `node story.js <folder cu story.json> [--preview]`; exemplu în `docs/examples/speed-camera/`.
 
 ## Structura repo-ului
 - `server.js`: HTTP și API (`/api/inspect`, `/api/process`, `/api/projects[/<id>]`, `/api/satisfying`, `/api/render`), job-uri ffmpeg/yt-dlp/Whisper, blocări per clip.
@@ -31,6 +33,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
 - `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
 - `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `loudness.js`: volum pe secundă, vârfuri, amestec de candidați. `test/`: testele (154, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
+- `story.js` (orchestrare poveste: decoruri → voce → timpi → subtitrări → randare) și `studio.js` (format `story.json`, căi, apelurile către `studio/`). `studio/`: Python separat — `imagegen.py` (SD-Turbo/OpenVINO), `tts.py` (Kokoro; Piper ca proces separat, e GPL), `render_story.py` + `scene.py`, `characters.py`, `overlays.py` (cadre Pillow → ffmpeg), `setup.py`, `tests/`.
 - `CONTRIBUTING.md`: regulile de lucru în doi (issue-uri, branch-uri, PR-uri, review, documentație).
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
@@ -44,6 +47,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - AI (`qwen2.5:7b`, CPU): ~60 s/candidat. TED 14 min: 464 s total. Stream GTA 6 h, din subtitrări existente: 939 s total (analiză volum + 10 candidați + clasare + 3 randări).
 - Analiza volumului pe 6 h: 47 s. Vârfuri mari care ajung la AI pe GTA: 1/12 → 6/12 cu preselecția după sunet.
 - Descărcare parțială, TED 14 min (reguli, fără AI): 293 s total; audio 13 MB + 3 segmente ~30 MB, proiect 71 MB. Segmentele sunt sincronizate cu audio-ul la 1 ms (corelație), A/V pornesc amândouă de la 0.
+- Poveste exemplu (12 scene, 6 decoruri, 38 s): **189 s total** — decoruri 103 s (încărcare model ~40 s + ~11,3 s/imagine 576×1024 pe Iris Xe), voce Kokoro 29 s, Whisper 15 s, randare 42 s (~timp real la 1080×1920@30). Pe procesor imaginile ar dura ~45 s fiecare; pe Iris Xe prin OpenVINO, de ~6× mai repede.
 
 ## Capcane cunoscute
 - `faster-whisper` 1.2.1 + `av` 19 crapă (`open()` nu mai acceptă `metadata_errors`). Ocolire: `transcribe.py` citește WAV-ul cu `wave` + numpy și îi dă lui Whisper eșantioanele.
@@ -63,6 +67,10 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Modelul `qwen2.5:7b`: notat separat dă aceeași notă (7/10) tuturor candidaților → runda de clasare comparativă decide; ignoră cererea de lungime → lărgire în cod; amestecă limbile dacă nu i le spui explicit. Testele de server folosesc mereu un Ollama fals (`CLIPTREI_OLLAMA_URL`): nu apelează niciodată modelul real.
 - `AbortSignal.timeout` acceptă doar milisecunde întregi: o fracție (ex. buget/6) aruncă eroare la fiecare întrebare, iar AI-ul pare „căzut”. `timeLeft` rotunjește în jos.
 - Browserul ținea `ui.css` vechi în cache. Fișierele aplicației se servesc acum cu `Cache-Control: no-cache`.
+- **optimum-intel** retrogradează `huggingface-hub` și strică `diffusers` dacă sunt în același mediu cu versiuni nepotrivite: de-asta `studio/requirements.txt` are versiuni fixate și mediu propriu.
+- **SD-Turbo + OpenVINO `reshape`:** biblioteca dublează mereu lotul UNet (presupune guidance), iar SD-Turbo rulează fără → eroare de formă la generare. `imagegen.py` recitește UNet-ul de pe disc și îi dă lotul 1. Fără dimensiune fixă, prima imagine pe placă durează ~60 s.
+- **Piper nu scoate niciun sunet** dacă textul conține „ ” (eroare `wave`). `tts.py` scoate ghilimelele tipografice doar din textul trimis vocii.
+- OpenVINO pe procesor (fp32) nu e mai rapid decât PyTorch; câștigul vine doar de pe placa Iris Xe (`GPU`).
 
 ## Unde am rămas (2026-11-23)
 Totul e în `main`, fără PR-uri deschise (PR #1–#12): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, alegerea momentelor cu AI (#7), preselecția după sunet (#8), **interfața ClipClick** (#9), **plafonul de 12 min pentru AI** (#10) și **descărcarea parțială** (#12). 154 de teste.
