@@ -5,3 +5,4 @@ satisfying/
 .playwright-mcp/
 studio/venv/
 models/
+__pycache__/
