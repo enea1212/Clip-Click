@@ -295,7 +295,7 @@ function rulesNote(project) {
   $(".rechoose-button", note).addEventListener("click", async () => {
     if (!confirm("Clipurile și setările lor (zoom, video jos, pauze) se refac. Continui?")) return;
     const token = viewToken;
-    showMessage("loading", "AI alege din nou momentele", "După alegere, se descarcă cele trei segmente video. Poți închide pagina: proiectul se termină oricum.");
+    showMessage("loading", "AI alege din nou momentele", "AI-ul alege în cel mult 12 minute (ce nu apucă se completează după reguli), apoi se descarcă cele trei segmente video. Poți închide pagina: proiectul se termină oricum.");
     try {
       const updated = await api(`/api/projects/${project.id}/rechoose`, { method: "POST", body: {} });
       if (token === viewToken) renderProject(updated);
