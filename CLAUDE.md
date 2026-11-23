@@ -14,6 +14,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **Fără anulare** pentru transcrierea lungă: procesarea merge până la capăt, iar proiectul apare în listă.
 - **Un singur video procesat odată**: al doilea e refuzat cu mesaj, fără coadă (A). Procesarea căzută sau întreruptă se reia manual cu „Reia”, nu automat.
 - **Momente alese cu AI local** (Ollama `qwen2.5:7b`, gratuit, A), pentru streamuri și podcasturi (C), lungime naturală 20–50 s la limită de frază (A, lărgită în cod la ≥ 30 s), 10 candidați (B), preselecție după reguli + AI (1). Fără Ollama → reguli, fără eroare.
+- 2026-11-23 — **Plafon de 12 min pentru etapa AI** (A): termen-limită pe toată etapa, 1/6 păstrat pentru clasare; candidații se întreabă alternat vorbire/sunet, ca o tăiere să păstreze amestecul; ce nu apucă AI-ul → reguli, cu nota „AI-ul a avut timp pentru X din 10 momente”. Răspunsurile din cache nu consumă din plafon. Teste: `CLIPTREI_AI_BUDGET_MS`.
 - 2026-11-23 — **Preselecția AI: 5 după vorbire + 5 după vârfurile de sunet (A)**: pe GTA, regulile după vorbire ratau 11 din 12 reacții puternice.
 - Git: repo `enea1212/Clip-Click` (public), branch `main`. **Commit și push la final de funcționalitate. De acum, fiecare funcționalitate nouă pe branch-ul ei.**
 - Conversația cu Claude se ține în română.
@@ -29,7 +30,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `subtitles.js`: VTT → cuvinte, grupare, fișier `.ass` karaoke. `clips.js`: alegerea celor 3 momente. `pauses.js`: segmente de vorbire și mutarea cuvintelor pe cronologia tăiată.
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
 - `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
-- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `loudness.js`: volum pe secundă, vârfuri, amestec de candidați. `test/`: testele (144, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
+- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `loudness.js`: volum pe secundă, vârfuri, amestec de candidați. `test/`: testele (150, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
 
@@ -58,6 +59,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Shell-ul rămas într-un folder din `data/` blochează ștergerea lui pe Windows (EBUSY).
 - Preselecția doar după vorbire ratează reacțiile de gaming (țipete, râsete au puțină vorbire): de-asta jumătate din candidați vin din vârfurile de volum. Analiza volumului: ffmpeg `astats` pe secundă, ~47 s pentru 6 h.
 - Modelul `qwen2.5:7b`: notat separat dă aceeași notă (7/10) tuturor candidaților → runda de clasare comparativă decide; ignoră cererea de lungime → lărgire în cod; amestecă limbile dacă nu i le spui explicit. Testele de server folosesc mereu un Ollama fals (`CLIPTREI_OLLAMA_URL`): nu apelează niciodată modelul real.
+- `AbortSignal.timeout` acceptă doar milisecunde întregi: o fracție (ex. buget/6) aruncă eroare la fiecare întrebare, iar AI-ul pare „căzut”. `timeLeft` rotunjește în jos.
 - Browserul ținea `ui.css` vechi în cache. Fișierele aplicației se servesc acum cu `Cache-Control: no-cache`.
 
 ## Unde am rămas (2026-11-23)
@@ -67,7 +69,7 @@ Primul test real pe stream (GTA 6 h, proiect `data/eafb540b…`, video legat pri
 
 ### Următoarele sarcini (cerute de Enea pe 2026-11-23, în ordinea asta, fiecare pe branch-ul ei)
 1. ~~Actualizarea documentației~~ (făcută la salvarea contextului).
-2. **Limită totală de timp pentru etapa AI** (~12 min). Ce nu apucă AI-ul se completează din reguli; estimarea se afișează la pornire, ca la Whisper. Acum, în cel mai rău caz, etapa depășește 30 min și blochează singurul job greu.
+2. ~~**Limită totală de timp pentru etapa AI**~~ (făcută pe `feature/limita-ai`). (~12 min). Ce nu apucă AI-ul se completează din reguli; estimarea se afișează la pornire, ca la Whisper. Acum, în cel mai rău caz, etapa depășește 30 min și blochează singurul job greu.
 3. **Descărcarea doar a bucăților necesare.** Întâi doar audio (+ subtitrări), suficient pentru transcriere, analiza volumului și AI; apoi doar cele 3 segmente video (yt-dlp `--download-sections`), plus fereastra pentru „Aplică”. Pe stream-ul de 6 h: 6,7 GB → câteva sute de MB. De gândit: cum se comportă „Aplică”/zoom și „Alege din nou cu AI”, care acum refolosesc `source.mp4`.
 
 ### După aceea (propuse, neprioritizate)
