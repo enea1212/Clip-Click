@@ -16,7 +16,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **Momente alese cu AI local** (Ollama `qwen2.5:7b`, gratuit, A), pentru streamuri și podcasturi (C), lungime naturală 20–50 s la limită de frază (A, lărgită în cod la ≥ 30 s), 10 candidați (B), preselecție după reguli + AI (1). Fără Ollama → reguli, fără eroare.
 - 2026-11-23 — **Plafon de 12 min pentru etapa AI** (A): termen-limită pe toată etapa, 1/6 păstrat pentru clasare; candidații se întreabă alternat vorbire/sunet, ca o tăiere să păstreze amestecul; ce nu apucă AI-ul → reguli, cu nota „AI-ul a avut timp pentru X din 10 momente”. Răspunsurile din cache nu consumă din plafon. Teste: `CLIPTREI_AI_BUDGET_MS`.
 - 2026-11-23 — **Preselecția AI: 5 după vorbire + 5 după vârfurile de sunet (A)**: pe GTA, regulile după vorbire ratau 11 din 12 reacții puternice.
-- Git: repo `enea1212/Clip-Click` (public), branch `main`. **Commit și push la final de funcționalitate. De acum, fiecare funcționalitate nouă pe branch-ul ei.**
+- Git: repo `enea1212/Clip-Click` (public), branch `main`. **Din 2026-11-23 lucrăm în doi: regulile sunt în `CONTRIBUTING.md`.** Pe scurt: fiecare sarcină e un issue cu responsabil, un branch pe sarcină, nimic direct pe `main`, PR cu `node --test` verde și review de la celălalt înainte de merge. Deciziile noi se scriu aici cu data și cine le-a luat.
 - Conversația cu Claude se ține în română.
 
 ## Mediu de lucru
@@ -31,6 +31,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
 - `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
 - `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `loudness.js`: volum pe secundă, vârfuri, amestec de candidați. `test/`: testele (154, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
+- `CONTRIBUTING.md`: regulile de lucru în doi (issue-uri, branch-uri, PR-uri, review, documentație).
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
 
@@ -64,23 +65,21 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Browserul ținea `ui.css` vechi în cache. Fișierele aplicației se servesc acum cu `Cache-Control: no-cache`.
 
 ## Unde am rămas (2026-11-23)
-Funcționalitatea de bază e în `main`, fără PR-uri deschise (PR #1–#8): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, **alegerea momentelor cu AI** (#7) și **preselecția după sunet** (#8: 5 candidați după vorbire + 5 în jurul vârfurilor de volum, cu indiciu în prompt). 144 de teste.
-
-Pe `feature/clipclick-interface` se lucrează la interfață și la redenumirea vizibilă în ClipClick; schimbarea păstrează paleta actuală și face navigarea de pe mobil vizibilă.
+Totul e în `main`, fără PR-uri deschise (PR #1–#12): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, alegerea momentelor cu AI (#7), preselecția după sunet (#8), **interfața ClipClick** (#9), **plafonul de 12 min pentru AI** (#10) și **descărcarea parțială** (#12). 154 de teste.
 
 Primul test real pe stream (GTA 6 h, proiect `data/eafb540b…`, video legat prin hardlink din `data/29520ba6…`, deci fără 6,7 GB în plus): **locurile 1 și 2 alese de AI vin din vârfurile de sunet** (5:35:59 „Never Getting the Good Ending”, 5:54:03 „It Worked! Then Faked It”), locul 3 din vorbire. Enea încă n-a verificat dacă momentele sunt bune.
 
-Descărcarea parțială (PR pe `feature/partial-media-downloads`): proiectele noi au `mediaMode: "segments"`: audio comprimat (`source.webm`) + subtitrări, apoi cele trei segmente video (`segment-N.mp4`, câte 5 s rezervă). „Aplică” folosește segmentul; „Alege din nou cu AI” refolosește audio-ul și descarcă segmentele noi (are nevoie de internet). Proiectele vechi cu `source.mp4` merg ca înainte.
+Descărcarea parțială (#12): proiectele noi au `mediaMode: "segments"`: audio comprimat (`source.webm`) + subtitrări, apoi cele trei segmente video (`segment-N.mp4`, câte 5 s rezervă). „Aplică” folosește segmentul; „Alege din nou cu AI” refolosește audio-ul și descarcă segmentele noi (are nevoie de internet). Proiectele vechi cu `source.mp4` merg ca înainte.
 
-### Următoarele sarcini (cerute de Enea pe 2026-11-23, în ordinea asta, fiecare pe branch-ul ei)
-1. ~~Actualizarea documentației~~ (făcută la salvarea contextului).
-2. ~~**Limită totală de timp pentru etapa AI**~~ (făcută pe `feature/limita-ai`). (~12 min). Ce nu apucă AI-ul se completează din reguli; estimarea se afișează la pornire, ca la Whisper. Acum, în cel mai rău caz, etapa depășește 30 min și blochează singurul job greu.
-3. ~~**Descărcarea doar a bucăților necesare.**~~ (făcută pe `feature/partial-media-downloads`) Întâi doar audio (+ subtitrări), suficient pentru transcriere, analiza volumului și AI; apoi doar cele 3 segmente video (yt-dlp `--download-sections`), plus fereastra pentru „Aplică”. Pe stream-ul de 6 h: 6,7 GB → câteva sute de MB. De gândit: cum se comportă „Aplică”/zoom și „Alege din nou cu AI”, care acum refolosesc `source.mp4`.
+### Sarcini asignate (issue-uri pe GitHub, 2026-11-23)
+Ordinea recomandată, de la cea mai mică la cea mai mare: #13 → #14 → #15 → #16.
+- #13 Clasarea AI să vadă tot textul clipului, nu doar primele 40 de cuvinte.
+- #14 Tipul videoului (stream/podcast/other) stabilit o singură dată pe video.
+- #15 Verificare ieftină a limbii titlului (2/9 greșite pe TED) și a românei din motiv.
+- #16 Pan stânga/dreapta în editorul de clip (camera din colț la streamuri).
+
+De verificat de Enea: momentele AI de pe GTA (încă neverificate) și descărcarea parțială pe un stream lung.
 
 ### După aceea (propuse, neprioritizate)
-- Clasarea AI să vadă tot textul clipului, nu doar titlul + primele 40 de cuvinte.
-- Tipul videoului (stream/podcast) stabilit o singură dată, nu pe fiecare candidat.
-- Verificare ieftină a limbii titlului (2/9 greșite pe TED) și a românei din motive.
-- Mutarea încadrării stânga/dreapta (pan), pentru camera din colț la streamuri.
 - Videouri de pe TikTok/Instagram (yt-dlp le suportă deja).
-- Probleme mici amânate: în `.superpowers/sdd/*/progress.md` (rânduri „minor (deferred)”).
+- Probleme mici amânate: în `.superpowers/sdd/*/progress.md` (rânduri „minor (deferred)”). Folderul e ignorat de git, deci există doar pe laptopul lui Enea; ce merită făcut se mută în issue-uri.
