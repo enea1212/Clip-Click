@@ -31,7 +31,6 @@
 .project-main strong{display:block;font-size:13px;color:#e9ebdf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-main span{display:block;margin-top:4px;font-size:10px;color:#85887e}
 .text-button.danger:hover{border-color:#8a4a3d;color:#ffb49f}
-.empty-list{color:#85887e;font-size:12px}
 @media(max-width:700px){.project-row{flex-wrap:wrap}.project-main{flex-basis:100%}}
 .pause-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#c5c7bc}
 .pause-row label{display:flex;align-items:center;gap:6px;cursor:pointer}
