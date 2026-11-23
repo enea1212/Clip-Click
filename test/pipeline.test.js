@@ -67,3 +67,9 @@ test("leftoverFiles: temp audio and clips no project entry points to", () => {
   const files = ["source.mp4", "chunk-1.wav", "clip-2.wav", "full.wav", "short-1-100.mp4", "short-1-200.mp4", "short-2-300.mp4", "raw-1.mp4", "words.json"];
   assert.deepEqual(leftoverFiles(project, files).sort(), ["chunk-1.wav", "clip-2.wav", "full.wav", "short-1-100.mp4", "short-2-300.mp4"]);
 });
+
+test("normalizeStatus: a project stopped while the AI was choosing is interrupted too", () => {
+  const out = normalizeStatus({ status: "choosing", clips: [] }, false);
+  assert.equal(out.status, "failed");
+  assert.equal(out.error, INTERRUPTED);
+});
