@@ -55,6 +55,12 @@ if (command === "python" && args[0] === "-m" && args[1] === "yt_dlp") {
   const folder = path.dirname(after("-o"));
   if (control.downloadFails) fail(`ERROR: [youtube] ${url}: This video is unavailable`);
   const section = args.includes("--download-sections");
+  // sectionFailsOnce: { flag, segment } — the download of that segment fails once (flag file present).
+  const failOnce = control.sectionFailsOnce;
+  if (section && failOnce && path.basename(after("-o")).startsWith(`segment-${failOnce.segment}.`) && fs.existsSync(failOnce.flag)) {
+    fs.rmSync(failOnce.flag);
+    fail(`ERROR: [youtube] ${url}: simulated section failure`);
+  }
   if (!section && !control.noSubs && args.includes("--write-subs")) fs.writeFileSync(path.join(folder, "source.en-orig.vtt"), vtt());
   if (!args.includes("--skip-download")) {
     if (control.slowDownloadMs) sleep(control.slowDownloadMs);

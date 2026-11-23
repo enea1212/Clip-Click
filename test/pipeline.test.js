@@ -73,3 +73,18 @@ test("normalizeStatus: a project stopped while the AI was choosing is interrupte
   assert.equal(out.status, "failed");
   assert.equal(out.error, INTERRUPTED);
 });
+
+test("resumePlan, segments mode: the audio file replaces source.mp4; clips without their section need one", () => {
+  const clips = [
+    { n: 1, start: 100, end: 134, sourceFile: "segment-1.mp4", segmentStart: 95 },
+    { n: 2, start: 200, end: 234 },
+    { n: 3, start: 300, end: 334, sourceFile: "segment-3.mp4", segmentStart: 295 },
+  ];
+  const project = { mediaMode: "segments", audioFile: "source.webm", clips };
+  const plan = resumePlan(project, new Set(["source.webm", "words.json", "segment-1.mp4"]));
+  assert.equal(plan.download, false);
+  assert.deepEqual(plan.downloadSegments, [2, 3], "segment-3.mp4 is recorded but missing on disk");
+  assert.equal(resumePlan({ ...project, audioFile: undefined }, new Set(["source.m4a"])).download, false, "audio found by name");
+  assert.equal(resumePlan(project, new Set(["source.mp4"])).download, true, "a full video does not count as the audio");
+  assert.equal(resumePlan({ clips: [] }, new Set()).downloadSegments, undefined, "old projects: no segments");
+});
