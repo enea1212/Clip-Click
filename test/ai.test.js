@@ -163,3 +163,8 @@ test("parseAnswer widens a short pick to at least 30 s around the AI's core (the
   assert.ok(clip.end - clip.start >= 30 && clip.end - clip.start <= 50, `${clip.end - clip.start}`);
   assert.ok(clip.start <= 120 - 0.1 + 1e-9 && clip.end >= 127.5 + 0.2 - 1e-9, "keeps the chosen lines");
 });
+
+test("buildPrompt adds a hint when the candidate is around a loud moment", () => {
+  assert.match(A.buildPrompt(LINES, { language: "en", loudAt: 125 }), /audio gets suddenly loud around 02:05/);
+  assert.doesNotMatch(A.buildPrompt(LINES, { language: "en" }), /suddenly loud/);
+});
