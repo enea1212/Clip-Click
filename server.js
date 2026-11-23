@@ -41,6 +41,20 @@ function safeUrl(raw) {
 function timestamp(value) { return new Date(value * 1000).toISOString().slice(11, 19); }
 const publicPath = (id, name) => `/data/${id}/${name}`;
 const folderOf = (id) => path.join(DATA_DIR, id);
+function audioSourceOf(project) {
+  if (project.mediaMode !== "segments") return "source.mp4";
+  if (!/^source\.(m4a|m4b|webm|opus|ogg|mp3|aac|wav|mka|mp4)$/i.test(project.audioFile || "")) throw new UserError("Fișierul audio al proiectului lipsește.");
+  return project.audioFile;
+}
+
+function clipSourceOf(project, clip) {
+  if (project.mediaMode !== "segments") return { file: "source.mp4", offset: 0 };
+  const expected = `segment-${clip.n}.mp4`;
+  if (clip.sourceFile !== expected || !Number.isFinite(clip.segmentStart) || !fs.existsSync(path.join(folderOf(project.id), expected))) {
+    throw new UserError(`Segmentul video ${clip.n} lipsește. Reia procesarea proiectului.`);
+  }
+  return { file: expected, offset: clip.segmentStart };
+}
 
 async function probe(file, cwd) {
   try {
@@ -48,6 +62,13 @@ async function probe(file, cwd) {
   } catch (error) {
     throw new UserError(error.message.includes("dimensiunile") ? error.message : "Nu am putut citi videoclipul.");
   }
+}
+
+async function probeDuration(file, cwd) {
+  const output = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file], { cwd });
+  const duration = Number(output.trim());
+  if (!(duration > 0)) throw new UserError("Nu am putut citi durata fișierului audio.");
+  return duration;
 }
 
 // One job per clip at a time, and no deleting a project while any of its jobs runs.
@@ -69,10 +90,10 @@ async function whisperAvailable() {
   }
 }
 
-// Transcribes [start, end] of source.mp4 with local Whisper. `language` (e.g. "en") skips
+// Transcribes [start, end] of the downloaded source audio with local Whisper. `language` (e.g. "en") skips
 // auto-detection; returns the words (absolute times) and the language Whisper used.
-async function whisperWords(folder, { start, end, wav, language }) {
-  await run("ffmpeg", W.audioArgs({ start, end, output: wav }), { cwd: folder });
+async function whisperWords(folder, { start, end, wav, language, source = "source.mp4" }) {
+  await run("ffmpeg", W.audioArgs({ start, end, output: wav, source }), { cwd: folder });
   try {
     const args = [path.join(ROOT, "transcribe.py"), wav, ...(language ? [language] : [])];
     const out = await run("python", args, { cwd: folder, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
@@ -94,7 +115,7 @@ async function whisperWords(folder, { start, end, wav, language }) {
 // window is reused so the whole transcript stays in one language.
 // Each finished window is saved in chunks/chunk-N.json, so „Reia” after a crash or a server
 // stop only transcribes the windows that are still missing.
-async function transcribeWholeVideo(folder, duration) {
+async function transcribeWholeVideo(folder, duration, source = "source.mp4") {
   const plan = W.chunkPlan(duration);
   const chunkDir = path.join(folder, "chunks");
   fs.mkdirSync(chunkDir, { recursive: true });
@@ -107,7 +128,7 @@ async function transcribeWholeVideo(folder, duration) {
       continue;
     }
     console.log(`[whisper] fragmentul ${index + 1}/${plan.length} (${Math.round(chunk.start / 60)}–${Math.round(chunk.end / 60)} min)`);
-    const result = await whisperWords(folder, { start: chunk.start, end: chunk.end, wav: `chunk-${index}.wav`, language });
+    const result = await whisperWords(folder, { start: chunk.start, end: chunk.end, wav: `chunk-${index}.wav`, language, source });
     language = language || result.language;
     P.writeJsonAtomic(chunkFile(index), { language: result.language, words: result.words });
   }
@@ -119,12 +140,12 @@ const clipWordsFile = (folder, n) => path.join(folder, `words-${n}.json`);
 // Exact word timings for one clip: Whisper on the clip's audio, or the YouTube words as fallback.
 // The language comes from the subtitle track already chosen, so a 34 s clip with music
 // isn't detected as another language.
-async function prepareClipWords(folder, clip, fallbackWords, language) {
+async function prepareClipWords(folder, clip, fallbackWords, language, source = "source.mp4") {
   let words = [];
   let wordsSource = "whisper";
   let whisperMissing = false;
   try {
-    ({ words } = await whisperWords(folder, { start: clip.start, end: clip.end, wav: `clip-${clip.n}.wav`, language }));
+    ({ words } = await whisperWords(folder, { start: clip.start, end: clip.end, wav: `clip-${clip.n}.wav`, language, source }));
   } catch (error) {
     whisperMissing = error.whisperMissing === true;
     console.warn(`[whisper] clip ${clip.n}: ${error.message}`);
@@ -142,9 +163,9 @@ async function prepareClipWords(folder, clip, fallbackWords, language) {
 }
 
 // A clip's words: the saved words-N.json, or prepared now (Whisper, else YouTube timings).
-async function clipWordsFor(folder, clip, fallbackWords, language) {
+async function clipWordsFor(folder, clip, fallbackWords, language, source = "source.mp4") {
   if (fs.existsSync(clipWordsFile(folder, clip.n))) return { words: JSON.parse(fs.readFileSync(clipWordsFile(folder, clip.n), "utf8")), wordsSource: clip.wordsSource };
-  return prepareClipWords(folder, clip, fallbackWords, language);
+  return prepareClipWords(folder, clip, fallbackWords, language, source);
 }
 
 // Renders one clip and returns the fields to store; the caller saves them.
@@ -167,9 +188,10 @@ async function renderClip(project, clip, words, { zoom, split, cutPauses = false
     }
   }
   fs.writeFileSync(path.join(folder, subtitles), ass, "utf8");
+  const { file: sourceFile, offset: sourceOffset } = clipSourceOf(project, clip);
   try {
     await run("ffmpeg", clipArgs({
-      start: clip.start, end: clip.end, srcW: project.sourceWidth, srcH: project.sourceHeight, zoom, split, subtitles, output,
+      start: clip.start - sourceOffset, end: clip.end - sourceOffset, srcW: project.sourceWidth, srcH: project.sourceHeight, zoom, split, subtitles, output, sourceFile,
       satisfyingPath: split ? path.join(SATISFYING_DIR, clip.satisfying.file) : undefined,
       satisfyingStart: split ? clip.satisfying.start : undefined,
       segments,
@@ -205,7 +227,7 @@ async function processVideo(rawUrl, { transcribe = false } = {}) {
     const id = randomUUID();
     fs.mkdirSync(folderOf(id), { recursive: true });
     // Saved from the start so a failure or a server stop leaves a project that can be resumed.
-    P.saveProject(DATA_DIR, { id, title: "", url, transcribe: transcribe === true, createdAt: new Date().toISOString(), status: "downloading", clips: [] });
+    P.saveProject(DATA_DIR, { id, title: "", url, transcribe: transcribe === true, mediaMode: "segments", createdAt: new Date().toISOString(), status: "downloading", clips: [] });
     return await runPipeline(id, { firstRun: true });
   } finally {
     locks.releaseHeavy();
@@ -248,7 +270,8 @@ async function rechooseProject(id) {
       // "ready" while pointing to deleted videos — „Reia” finishes the job.
       saveStage(fresh, { clips: [], selection: undefined, selectionNote: undefined, aiProgress: undefined, status: "failed", error: "Se aleg din nou momentele." });
       for (const clip of oldClips) {
-        for (const name of [fileOfUrl(clip.video), fileOfUrl(clip.raw), `sat-${clip.n}.mp4`, `captions-${clip.n}.ass`, `words-${clip.n}.json`]) {
+        const segmentFile = clip.sourceFile === `segment-${clip.n}.mp4` ? clip.sourceFile : null;
+        for (const name of [fileOfUrl(clip.video), fileOfUrl(clip.raw), segmentFile, `sat-${clip.n}.mp4`, `captions-${clip.n}.ass`, `words-${clip.n}.json`]) {
           if (name) try { fs.rmSync(path.join(folder, name), { force: true }); } catch { /* in use: cleaned on a later run */ }
         }
       }
@@ -267,15 +290,65 @@ const subtitleArgs = (transcribe) => (transcribe ? [] : ["--write-auto-subs", "-
 
 const saveStage = (project, changes) => { Object.assign(project, changes); P.saveProject(DATA_DIR, project); };
 
-// Per-second loudness of the video (dB), measured once with ffmpeg (~47 s for 6 h) and cached in
+const AUDIO_EXT = /\.(m4a|m4b|webm|opus|ogg|mp3|aac|wav|mka|mp4)$/i;
+const SECTION_PADDING = 5;
+
+function sectionTimestamp(seconds) {
+  const millis = Math.max(0, Math.round(seconds * 1000));
+  const hours = Math.floor(millis / 3_600_000);
+  const minutes = Math.floor((millis % 3_600_000) / 60_000);
+  const wholeSeconds = Math.floor((millis % 60_000) / 1000);
+  const fraction = millis % 1000;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(wholeSeconds).padStart(2, "0")}.${String(fraction).padStart(3, "0")}`;
+}
+
+async function downloadAudio(project, folder) {
+  saveStage(project, { status: "downloading", error: undefined });
+  const outputTemplate = path.join(folder, "source.%(ext)s");
+  const printed = await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", ...subtitleArgs(project.transcribe), "-f", "ba", "-o", outputTemplate, "--print", "after_move:title", "--print", "after_move:filepath", project.url], { cwd: folder, windowsHide: true });
+  const audioFile = fs.readdirSync(folder).find((name) => name.startsWith("source.") && AUDIO_EXT.test(name));
+  if (!audioFile) throw new UserError("YouTube nu a furnizat un fișier audio compatibil.");
+  const duration = await probeDuration(audioFile, folder);
+  saveStage(project, { title: printed.split(/\r?\n/)[0]?.trim() || "Video fără titlu", audioFile, duration });
+}
+
+async function downloadClipSection(project, folder, clip) {
+  const segmentStart = Math.max(0, clip.start - SECTION_PADDING);
+  const segmentEnd = project.duration > 0 ? Math.min(project.duration, clip.end + SECTION_PADDING) : clip.end + SECTION_PADDING;
+  if (!(segmentEnd > segmentStart)) throw new UserError(`Intervalul segmentului video ${clip.n} este invalid.`);
+  const base = `segment-${clip.n}`;
+  const outputTemplate = path.join(folder, `${base}.%(ext)s`);
+  const section = `*${sectionTimestamp(segmentStart)}-${sectionTimestamp(segmentEnd)}`;
+  await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", "--download-sections", section, "--force-keyframes-at-cuts", "--force-overwrites", "-f", "bv*[height<=1080]+ba/b[height<=1080]", "--merge-output-format", "mp4", "-o", outputTemplate, "--print", "after_move:filepath", project.url], { cwd: folder, windowsHide: true });
+  const downloaded = fs.readdirSync(folder).find((name) => name.startsWith(`${base}.`) && /\.(mp4|mkv|webm)$/i.test(name));
+  if (!downloaded) throw new UserError(`YouTube nu a furnizat segmentul video ${clip.n}.`);
+  const sourceFile = `${base}.mp4`;
+  if (downloaded !== sourceFile) fs.renameSync(path.join(folder, downloaded), path.join(folder, sourceFile));
+  const source = await probe(sourceFile, folder);
+  if (source.duration < clip.end - segmentStart - 0.5) {
+    fs.rmSync(path.join(folder, sourceFile), { force: true });
+    throw new UserError(`Segmentul video ${clip.n} este incomplet.`);
+  }
+  clip.sourceFile = sourceFile;
+  clip.segmentStart = segmentStart;
+  clip.segmentEnd = segmentEnd;
+  if (!(project.sourceWidth > 0 && project.sourceHeight > 0)) {
+    project.sourceWidth = source.width;
+    project.sourceHeight = source.height;
+    project.fps = source.fps;
+  }
+  saveStage(project, {});
+}
+
+// Per-second loudness of the source audio (dB), measured once with ffmpeg (~47 s for 6 h) and cached in
 // loudness.json. Any failure → [] (no audio candidates), never a processing error.
-async function loudnessOf(folder) {
+async function loudnessOf(folder, source = "source.mp4") {
   const cacheFile = path.join(folder, "loudness.json");
   const cached = readJsonOrNull(cacheFile);
   if (Array.isArray(cached)) return cached;
   const temp = path.join(folder, "loudness.txt");
   try {
-    await run("ffmpeg", L.loudnessArgs("loudness.txt"), { cwd: folder });
+    await run("ffmpeg", L.loudnessArgs("loudness.txt", source), { cwd: folder });
     const rms = L.parseLoudness(fs.readFileSync(temp, "utf8"));
     // An empty result (unreadable output, no audio frames) is not cached: the next run measures again.
     if (!rms.length) throw new Error("analiza nu a dat niciun rezultat");
@@ -339,7 +412,7 @@ async function chooseMoments(project, folder, words) {
   let note = ai.ok ? undefined : ai.reason;
   if (ai.ok) {
     // 5 speech-dense windows + 5 around the loudest moments (reactions with little speech).
-    const rms = await loudnessOf(folder);
+    const rms = await loudnessOf(folder, audioSourceOf(project));
     const candidates = L.mixCandidates(chooseCandidates(transcript, { count: 10, length: 75 }), L.loudEvents(rms), { count: 10, speech: 5, length: 75, duration: rms.length || Infinity });
     const aiDir = path.join(folder, "ai");
     fs.mkdirSync(aiDir, { recursive: true });
@@ -390,12 +463,12 @@ async function chooseMoments(project, folder, words) {
   // delete the project, even a finished one on „Alege din nou cu AI”).
   const final = AI.chooseFinal(aiClips, ruleClips);
   if (final.length < 3) throw permanent(new UserError("Videoclipul e prea scurt sau subtitrările nu conțin destulă vorbire pentru trei momente."));
-  const source = await probe("source.mp4", folder);
+  const source = project.mediaMode === "segments" ? {} : await probe("source.mp4", folder);
   const captionOf = (clip) => (clip.entries
     ? clip.entries.map((entry) => entry.caption).join(" ")
     : words.filter((word) => word.start >= clip.start && word.start < clip.end).map((word) => word.word).join(" ")).slice(0, 180);
   saveStage(project, {
-    sourceWidth: source.width, sourceHeight: source.height, fps: source.fps,
+    ...(source.width ? { sourceWidth: source.width, sourceHeight: source.height, fps: source.fps } : {}),
     selection: final.some((clip) => clip.source === "ai") ? "ai" : "reguli",
     selectionNote: final.some((clip) => clip.source === "reguli") ? note : undefined,
     clips: final.map((clip, index) => ({
@@ -421,17 +494,24 @@ async function runPipeline(id, { firstRun }) {
         try { fs.rmSync(path.join(folder, name), { force: true }); } catch { /* in use: try next time */ }
       }
       const filesNow = () => new Set(fs.readdirSync(folder));
+      if (project.mediaMode === "segments" && !project.audioFile) {
+        const existingAudio = fs.readdirSync(folder).find((name) => name.startsWith("source.") && AUDIO_EXT.test(name));
+        if (existingAudio) saveStage(project, { audioFile: existingAudio, duration: await probeDuration(existingAudio, folder) });
+      }
       let plan = resumePlan(project, filesNow());
 
       if (plan.download) {
-        saveStage(project, { status: "downloading", error: undefined });
-        const outputTemplate = path.join(folder, "source.%(ext)s");
-        const printed = await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", ...subtitleArgs(project.transcribe), "-f", "bv*[height<=1080]+ba/b[height<=1080]", "--merge-output-format", "mp4", "-o", outputTemplate, "--print", "after_move:title", "--print", "after_move:filepath", project.url], { cwd: folder, windowsHide: true });
-        const video = fs.readdirSync(folder).find((name) => /^source\.(mp4|mkv|webm)$/i.test(name));
-        if (!video) throw new UserError("YouTube nu a furnizat un fișier video compatibil.");
-        // render.js reads "source.mp4"; ffmpeg detects the real container from the content.
-        if (video !== "source.mp4") fs.renameSync(path.join(folder, video), path.join(folder, "source.mp4"));
-        saveStage(project, { title: printed.split(/\r?\n/)[0]?.trim() || "Video fără titlu" });
+        if (project.mediaMode === "segments") await downloadAudio(project, folder);
+        else {
+          saveStage(project, { status: "downloading", error: undefined });
+          const outputTemplate = path.join(folder, "source.%(ext)s");
+          const printed = await run("python", ["-m", "yt_dlp", "--ignore-errors", "--no-playlist", "--no-warnings", ...subtitleArgs(project.transcribe), "-f", "bv*[height<=1080]+ba/b[height<=1080]", "--merge-output-format", "mp4", "-o", outputTemplate, "--print", "after_move:title", "--print", "after_move:filepath", project.url], { cwd: folder, windowsHide: true });
+          const video = fs.readdirSync(folder).find((name) => /^source\.(mp4|mkv|webm)$/i.test(name));
+          if (!video) throw new UserError("YouTube nu a furnizat un fișier video compatibil.");
+          // render.js reads "source.mp4"; ffmpeg detects the real container from the content.
+          if (video !== "source.mp4") fs.renameSync(path.join(folder, video), path.join(folder, "source.mp4"));
+          saveStage(project, { title: printed.split(/\r?\n/)[0]?.trim() || "Video fără titlu" });
+        }
       }
       // A download that failed after the video arrived may have left no title.
       if (!project.title) saveStage(project, { title: "Video fără titlu" });
@@ -441,9 +521,11 @@ async function runPipeline(id, { firstRun }) {
         saveStage(project, { status: "transcribing", error: undefined });
         let words;
         if (project.transcribe) {
-          // No original-language subtitles: transcribe the whole video (the user confirmed the estimate).
+          // No original-language subtitles: transcribe the downloaded audio (the user confirmed the estimate).
           project.track = "whisper";
-          words = await transcribeWholeVideo(folder, (await probe("source.mp4", folder)).duration);
+          const source = audioSourceOf(project);
+          const duration = project.duration || await probeDuration(source, folder);
+          words = await transcribeWholeVideo(folder, duration, source);
           if (!words.length) throw permanent(new UserError("Whisper nu a găsit vorbire în acest videoclip."));
         } else {
           const readCaptions = () => fs.readdirSync(folder).filter((name) => name.startsWith("source.") && name.endsWith(".vtt")).map((name) => ({ name, text: fs.readFileSync(path.join(folder, name), "utf8") }));
@@ -465,6 +547,20 @@ async function runPipeline(id, { firstRun }) {
 
       if (plan.choose) await chooseMoments(project, folder, words);
 
+      if (project.mediaMode === "segments") {
+        const missingSegments = resumePlan(project, filesNow()).downloadSegments;
+        if (missingSegments.length) {
+          saveStage(project, { status: "downloadingSegments", error: undefined });
+          for (const n of missingSegments) await downloadClipSection(project, folder, project.clips[n - 1]);
+        }
+        if (!(project.sourceWidth > 0 && project.sourceHeight > 0)) {
+          const firstSegment = project.clips.find((clip) => clip.sourceFile)?.sourceFile;
+          if (!firstSegment) throw new UserError("Nu am găsit segmente video pentru randare.");
+          const source = await probe(firstSegment, folder);
+          saveStage(project, { sourceWidth: source.width, sourceHeight: source.height, fps: source.fps });
+        }
+      }
+
       saveStage(project, { status: "rendering", error: undefined });
       for (const n of resumePlan(project, filesNow()).renderClips) {
         const clip = project.clips[n - 1];
@@ -475,7 +571,7 @@ async function runPipeline(id, { firstRun }) {
           P.writeJsonAtomic(clipWordsFile(folder, n), clipWords);
           clip.wordsSource = "whisper";
         } else {
-          const prepared = await clipWordsFor(folder, clip, words, W.trackLanguage(project.track));
+          const prepared = await clipWordsFor(folder, clip, words, W.trackLanguage(project.track), audioSourceOf(project));
           clipWords = prepared.words;
           clip.wordsSource = prepared.wordsSource;
         }
@@ -486,7 +582,8 @@ async function runPipeline(id, { firstRun }) {
         Object.assign(clip, await renderClip(project, clip, clipWords, { zoom: 1, split: false, cutPauses: clip.wordsSource === "whisper" }));
         removePublicFile(id, previous !== clip.video ? previous : null);
         const raw = `raw-${n}.mp4`;
-        await run("ffmpeg", rawPreviewArgs({ start: clip.start, end: clip.end, output: raw }), { cwd: folder });
+        const { file: sourceFile, offset: sourceOffset } = clipSourceOf(project, clip);
+        await run("ffmpeg", rawPreviewArgs({ start: clip.start - sourceOffset, end: clip.end - sourceOffset, output: raw, sourceFile }), { cwd: folder });
         clip.raw = publicPath(id, raw);
         saveStage(project, {});
       }
@@ -494,13 +591,16 @@ async function runPipeline(id, { firstRun }) {
       saveStage(project, { status: "ready", error: undefined });
       return project;
     } catch (error) {
-      if (!keepForResume({ firstRun, hasSource: fs.existsSync(path.join(folder, "source.mp4")), permanent: error.permanent === true })) {
-        // Nothing to reuse, or „Reia” would hit the same error forever: don't keep GB on disk.
+      const hasSource = project.mediaMode === "segments"
+        ? (project.audioFile && fs.existsSync(path.join(folder, project.audioFile))) || fs.readdirSync(folder).some((name) => name.startsWith("source.") && AUDIO_EXT.test(name))
+        : fs.existsSync(path.join(folder, "source.mp4"));
+      if (!keepForResume({ firstRun, hasSource, permanent: error.permanent === true })) {
+        // Nothing to reuse, or „Reia” would hit the same error forever: don't keep large media files.
         try { fs.rmSync(folder, { recursive: true, force: true }); } catch { /* listed as incomplete; deletable later */ }
         if (!firstRun) error.message += " Proiectul a fost șters, pentru că reluarea n-ar schimba rezultatul.";
         throw error;
       }
-      // Keep everything done so far (possibly GB of video and hours of transcription).
+      // Keep everything done so far (the audio, selected segments, and any transcript windows).
       try { saveStage(project, { status: "failed", error: error.message }); } catch { /* folder gone */ }
       error.resumable = true;
       throw error;
@@ -556,7 +656,7 @@ async function rerender({ id, clip: n, zoom, satisfying, cutPauses }) {
     // get them now: Whisper if available, else YouTube timings.
     const hadWords = fs.existsSync(clipWordsFile(folder, n));
     const fallback = hadWords ? [] : JSON.parse(fs.readFileSync(path.join(folder, "words.json"), "utf8"));
-    const { words, wordsSource } = await clipWordsFor(folder, clip, fallback, W.trackLanguage(fresh.track));
+    const { words, wordsSource } = await clipWordsFor(folder, clip, fallback, W.trackLanguage(fresh.track), audioSourceOf(fresh));
     if (!hadWords) {
       clip.wordsSource = wordsSource;
       P.updateClip(DATA_DIR, id, n, { wordsSource });

@@ -2,19 +2,25 @@
 // already on disk, and how to show a project whose job is no longer running.
 
 const INTERRUPTED = "Procesarea a fost întreruptă.";
-const RUNNING = new Set(["downloading", "transcribing", "choosing", "rendering"]);
+const RUNNING = new Set(["downloading", "downloadingSegments", "transcribing", "choosing", "rendering"]);
 
 const fileOf = (publicUrl) => String(publicUrl || "").split("?")[0].split("/").pop();
+const AUDIO_SOURCE = /^source\.(m4a|m4b|webm|opus|ogg|mp3|aac|wav|mka|mp4)$/i;
 
 // files: Set of file names in the project folder.
 function resumePlan(project, files) {
   const clips = project.clips || [];
-  return {
-    download: !files.has("source.mp4"),
+  const hasAudio = project.audioFile ? files.has(project.audioFile) : [...files].some((name) => AUDIO_SOURCE.test(name));
+  const plan = {
+    download: project.mediaMode === "segments" ? !hasAudio : !files.has("source.mp4"),
     words: !files.has("words.json"),
     choose: clips.length === 0,
     renderClips: clips.filter((clip) => !clip.video || !files.has(fileOf(clip.video)) || !files.has(`raw-${clip.n}.mp4`)).map((clip) => clip.n),
   };
+  if (project.mediaMode === "segments") {
+    plan.downloadSegments = clips.filter((clip) => clip.sourceFile !== `segment-${clip.n}.mp4` || !files.has(clip.sourceFile)).map((clip) => clip.n);
+  }
+  return plan;
 }
 
 // chunkFiles: Set of file names in the project's chunks/ folder.

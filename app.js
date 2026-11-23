@@ -135,8 +135,8 @@ form.addEventListener("submit", async (event) => {
   $("#results-title").innerHTML = `Pregătim <span>Shorts</span>`;
   const choose = aiReady ? "AI-ul alege momentele" : "alegem momentele după reguli (AI indisponibil)";
   $("#video-label").textContent = transcribe
-    ? `Descarcăm video-ul, îl transcriem cu Whisper, ${choose} și randăm clipurile.`
-    : `Descarcăm video-ul, ${choose} și randăm clipurile.`;
+    ? `Descarcăm audio-ul, îl transcriem cu Whisper, ${choose}, apoi descărcăm segmentele video și randăm clipurile.`
+    : `Descarcăm audio-ul, ${choose}, apoi descărcăm segmentele video și randăm clipurile.`;
   const aiNote = aiReady ? ` AI-ul mai adaugă cel mult ${aiMinutes} minute.` : "";
   showMessage("loading", "Pregătim cele 3 Shorts", transcribe
     ? `Transcrierea durează cam ${estimate} minute, plus descărcarea.${aiNote} Poți închide pagina: proiectul apare în „Proiectele mele” când e gata.`
@@ -187,7 +187,8 @@ async function showProjects() {
 }
 
 const STAGE_LABELS = {
-  downloading: "Se descarcă videoclipul…",
+  downloading: "Se descarcă audio-ul și subtitrările…",
+  downloadingSegments: "Se descarcă segmentele video alese…",
   transcribing: "Se transcrie cu Whisper…",
   choosing: "AI notează momentele…",
   rendering: "Se randează clipurile…",
@@ -294,7 +295,7 @@ function rulesNote(project) {
   $(".rechoose-button", note).addEventListener("click", async () => {
     if (!confirm("Clipurile și setările lor (zoom, video jos, pauze) se refac. Continui?")) return;
     const token = viewToken;
-    showMessage("loading", "AI alege din nou momentele", "Durează câteva minute. Poți închide pagina: proiectul se termină oricum.");
+    showMessage("loading", "AI alege din nou momentele", "După alegere, se descarcă cele trei segmente video. Poți închide pagina: proiectul se termină oricum.");
     try {
       const updated = await api(`/api/projects/${project.id}/rechoose`, { method: "POST", body: {} });
       if (token === viewToken) renderProject(updated);

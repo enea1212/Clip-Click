@@ -54,11 +54,14 @@ if (command === "python" && args[0] === "-m" && args[1] === "yt_dlp") {
   }
   const folder = path.dirname(after("-o"));
   if (control.downloadFails) fail(`ERROR: [youtube] ${url}: This video is unavailable`);
-  if (!control.noSubs) fs.writeFileSync(path.join(folder, "source.en-orig.vtt"), vtt());
+  const section = args.includes("--download-sections");
+  if (!section && !control.noSubs && args.includes("--write-subs")) fs.writeFileSync(path.join(folder, "source.en-orig.vtt"), vtt());
   if (!args.includes("--skip-download")) {
     if (control.slowDownloadMs) sleep(control.slowDownloadMs);
-    fs.writeFileSync(path.join(folder, "source.mp4"), "fake video");
-    out(`FAKE VIDEO\n${path.join(folder, "source.mp4")}\n`);
+    const template = path.basename(after("-o"));
+    const file = section ? template.replace("%(ext)s", "mp4") : template.replace("%(ext)s", "webm");
+    fs.writeFileSync(path.join(folder, file), section ? "fake segment" : "fake audio");
+    out(`FAKE VIDEO\n${path.join(folder, file)}\n`);
   }
   process.exit(0);
 }
@@ -76,6 +79,7 @@ if (command === "python" && /transcribe\.py$/.test(args[0])) {
 }
 
 if (command === "ffprobe") {
+  if (args.includes("-of")) { out(`${duration}\n`); process.exit(0); }
   out(JSON.stringify({ streams: [{ width: 1920, height: 1080 }], format: { duration: String(duration) } }));
   process.exit(0);
 }

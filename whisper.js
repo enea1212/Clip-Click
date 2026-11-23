@@ -7,10 +7,10 @@ const FACTOR = 0.45;
 const WHISPER_MISSING = "Instalează faster-whisper: python -m pip install --user faster-whisper";
 const MISSING_EXIT_CODE = 3;
 
-function audioArgs({ start, end, output }) {
+function audioArgs({ start, end, output, source = "source.mp4" }) {
   const range = start === undefined ? [] : ["-ss", String(start)];
   const length = start === undefined || end === undefined ? [] : ["-t", String(end - start)];
-  return ["-y", ...range, "-i", "source.mp4", ...length, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", output];
+  return ["-y", ...range, "-i", source, ...length, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", output];
 }
 
 function parseTranscript(stdout, offset = 0) {

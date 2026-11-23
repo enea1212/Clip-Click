@@ -69,6 +69,8 @@ Pe `feature/clipclick-interface` se lucrează la interfață și la redenumirea 
 
 Primul test real pe stream (GTA 6 h, proiect `data/eafb540b…`, video legat prin hardlink din `data/29520ba6…`, deci fără 6,7 GB în plus): **locurile 1 și 2 alese de AI vin din vârfurile de sunet** (5:35:59 „Never Getting the Good Ending”, 5:54:03 „It Worked! Then Faked It”), locul 3 din vorbire. Enea încă n-a verificat dacă momentele sunt bune.
 
+Taskul descărcărilor este pe `feature/partial-media-downloads`: audio comprimat și subtitrări mai întâi, apoi cele trei segmente video cu câte 5 s de rezervă înainte și după. Segmentele rămân pentru „Aplică”; „Alege din nou cu AI” le șterge și le descarcă din nou pentru momentele noi. Proiectele mai vechi cu `source.mp4` rămân compatibile.
+
 ### Următoarele sarcini (cerute de Enea pe 2026-11-23, în ordinea asta, fiecare pe branch-ul ei)
 1. ~~Actualizarea documentației~~ (făcută la salvarea contextului).
 2. ~~**Limită totală de timp pentru etapa AI**~~ (făcută pe `feature/limita-ai`). (~12 min). Ce nu apucă AI-ul se completează din reguli; estimarea se afișează la pornire, ca la Whisper. Acum, în cel mai rău caz, etapa depășește 30 min și blochează singurul job greu.
