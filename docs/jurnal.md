@@ -1,4 +1,4 @@
-# Jurnal – ClipTrei
+# Jurnal – ClipClick
 
 ## 2026-11-22 — De la prototip la editor de Shorts cu Whisper
 **Obiectiv:** din linkul YouTube să iasă 3 Shorts cu subtitrări frumoase, editabile, și să meargă și pe videouri fără subtitrări.
@@ -44,3 +44,12 @@
 **Decizii:** amestec 5 + 5 (A).
 **Următorul pas:** limită totală de timp pentru etapa AI, apoi descărcarea doar a bucăților necesare (vezi „Următoarele sarcini” în CLAUDE.md).
 **Conversație:** sesiune Claude Code în VS Code (d:\AI_SLOP).
+
+## 2026-11-23 — Interfață ClipClick mai clară
+**Obiectiv:** să fie evident ce trebuie făcut la pornire, unde găsești proiectele și ce se întâmplă în timpul procesării.
+**Făcut:**
+- Brandul afișat devine ClipClick în interfață, titlul paginii, pornirea serverului și documentație.
+- Formularul are etichetă și explicație vizibile; fluxul este descris în trei pași reali, fără previzualizări demonstrative care pot părea rezultate reale.
+- Navigarea către proiecte rămâne vizibilă pe mobil; ecranele de procesare, rezultate și listă au texte mai explicite.
+- Se păstrează paleta existentă.
+**Branch:** `feature/clipclick-interface`.

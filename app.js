@@ -43,7 +43,7 @@ function showView(name) {
   for (const [key, el] of Object.entries(views)) el.classList.toggle("hidden", key !== name);
   $("#new-link").classList.toggle("active", name === "start");
   $("#history-link").classList.toggle("active", name === "projects");
-  $("#crumb").textContent = name === "projects" ? "Proiectele mele" : name === "results" ? "Proiect" : "Proiect nou";
+  $("#crumb").textContent = name === "projects" ? "Proiectele mele" : name === "results" ? "Proiect" : "Creează Shorts";
   if (!sameView) window.scrollTo({ top: 0 });
 }
 
@@ -66,7 +66,7 @@ async function route() {
 async function openProject(id) {
   showView("results");
   const token = viewToken;
-  $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
+  $("#results-title").innerHTML = `Proiectul <span>tău</span>`;
   $("#video-label").textContent = "";
   showMessage("loading", "Se încarcă proiectul", "");
   try {
@@ -91,7 +91,7 @@ async function openProject(id) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!isYouTubeUrl(urlInput.value.trim())) {
-    urlInput.setCustomValidity("Adauga un link HTTPS valid de YouTube.");
+    urlInput.setCustomValidity("Adaugă un link HTTPS valid de YouTube.");
     urlInput.reportValidity();
     return;
   }
@@ -102,7 +102,7 @@ form.addEventListener("submit", async (event) => {
   button.disabled = true;
   const url = urlInput.value.trim();
   // First a quick metadata check: videos without original subtitles need a (long) local transcription.
-  label.textContent = "Verific videoclipul…";
+  label.textContent = "Verific linkul…";
   let transcribe = false;
   let estimate = 0;
   let aiReady = false;
@@ -130,7 +130,7 @@ form.addEventListener("submit", async (event) => {
   }
   label.textContent = "Analizez videoclipul...";
   showView("results");
-  $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
+  $("#results-title").innerHTML = `Pregătim <span>Shorts</span>`;
   const choose = aiReady ? "AI-ul alege momentele" : "alegem momentele după reguli (AI indisponibil)";
   $("#video-label").textContent = transcribe
     ? `Descarcăm video-ul, îl transcriem cu Whisper, ${choose} și randăm clipurile.`
@@ -176,7 +176,7 @@ async function showProjects() {
   try {
     const projects = await api("/api/projects");
     if (token !== viewToken) return;
-    if (!projects.length) { list.innerHTML = `<p class="empty-list">Nu ai încă proiecte.</p>`; return; }
+    if (!projects.length) { list.innerHTML = `<div class="empty-projects"><strong>Încă nu ai proiecte</strong><span>Lipește un link YouTube în „Creează Shorts” ca să începi primul set.</span></div>`; return; }
     list.innerHTML = projects.map(projectRow).join("");
     if (projects.some((item) => STAGE_LABELS[item.status])) refreshWhileOpen(showProjects, token);
   } catch (error) {
@@ -247,7 +247,7 @@ $("#project-list").addEventListener("click", async (event) => {
     try {
       await api(`/api/projects/${row.dataset.id}`, { method: "DELETE" });
       row.remove();
-      if (!$(".project-row", $("#project-list"))) $("#project-list").innerHTML = `<p class="empty-list">Nu ai încă proiecte.</p>`;
+      if (!$(".project-row", $("#project-list"))) $("#project-list").innerHTML = `<div class="empty-projects"><strong>Încă nu ai proiecte</strong><span>Lipește un link YouTube în „Creează Shorts” ca să începi primul set.</span></div>`;
     } catch (error) {
       alert(error.message);
     }
@@ -257,7 +257,7 @@ $("#project-list").addEventListener("click", async (event) => {
 /* ---------- results ---------- */
 
 function renderLegacy(item) {
-  $("#results-title").innerHTML = `Proiect <span>vechi</span>`;
+  $("#results-title").innerHTML = `Clipuri <span>vechi</span>`;
   $("#video-label").textContent = "Doar vizionare: acest proiect a fost creat înainte de editor.";
   grid.innerHTML = item.videos.map((video, index) => `
     <article class="clip-card">
@@ -270,7 +270,7 @@ function renderLegacy(item) {
 }
 
 function renderProject(project) {
-  $("#results-title").innerHTML = `Am găsit <span>3 momente</span>`;
+  $("#results-title").innerHTML = `${project.clips.length} Shorts, <span>gata</span>`;
   $("#video-label").textContent = project.title;
   grid.innerHTML = "";
   if (project.selection === "reguli") grid.append(rulesNote(project));
@@ -283,7 +283,7 @@ function rulesNote(project) {
   const note = document.createElement("div");
   note.className = "selection-note";
   note.innerHTML = `<span>Momente alese după reguli${project.selectionNote ? ` (AI indisponibil: ${escapeHtml(project.selectionNote)})` : ""}.</span>
-    <button class="text-button rechoose-button">Alege din nou cu AI</button>`;
+    <button class="text-button rechoose-button">Încearcă alte momente cu AI</button>`;
   $(".rechoose-button", note).addEventListener("click", async () => {
     if (!confirm("Clipurile și setările lor (zoom, video jos, pauze) se refac. Continui?")) return;
     const token = viewToken;

@@ -1,4 +1,4 @@
-"""Local speech-to-text for ClipTrei.
+"""Local speech-to-text for ClipClick.
 
 Usage: python transcribe.py <audio.wav> [language]
 (language, e.g. "ro" or "en", skips auto-detection when it is already known)

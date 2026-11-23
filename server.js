@@ -663,4 +663,4 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => console.log(`ClipTrei rulează pe http://localhost:${PORT} (${os.platform()})`));
+server.listen(PORT, "127.0.0.1", () => console.log(`ClipClick rulează pe http://localhost:${PORT} (${os.platform()})`));

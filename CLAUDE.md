@@ -1,4 +1,4 @@
-# ClipTrei
+# ClipClick
 
 ## Scop
 Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link YouTube, alege 3 momente bune și le exportă ca Shorts verticale (1080×1920). Clipurile au subtitrări karaoke și se pot edita per clip: zoom cu bare blurate, video „satisfying” jos, tăierea pauzelor. „Gata” = Enea poate scoate și edita Shorts din orice video YouTube public, fără servicii plătite.
@@ -61,7 +61,9 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Browserul ținea `ui.css` vechi în cache. Fișierele aplicației se servesc acum cu `Cache-Control: no-cache`.
 
 ## Unde am rămas (2026-11-23)
-Totul e în `main`, fără PR-uri deschise (PR #1–#8): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, **alegerea momentelor cu AI** (#7) și **preselecția după sunet** (#8: 5 candidați după vorbire + 5 în jurul vârfurilor de volum, cu indiciu în prompt). 144 de teste.
+Funcționalitatea de bază e în `main`, fără PR-uri deschise (PR #1–#8): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, **alegerea momentelor cu AI** (#7) și **preselecția după sunet** (#8: 5 candidați după vorbire + 5 în jurul vârfurilor de volum, cu indiciu în prompt). 144 de teste.
+
+Pe `feature/clipclick-interface` se lucrează la interfață și la redenumirea vizibilă în ClipClick; schimbarea păstrează paleta actuală și face navigarea de pe mobil vizibilă.
 
 Primul test real pe stream (GTA 6 h, proiect `data/eafb540b…`, video legat prin hardlink din `data/29520ba6…`, deci fără 6,7 GB în plus): **locurile 1 și 2 alese de AI vin din vârfurile de sunet** (5:35:59 „Never Getting the Good Ending”, 5:54:03 „It Worked! Then Faked It”), locul 3 din vorbire. Enea încă n-a verificat dacă momentele sunt bune.
 

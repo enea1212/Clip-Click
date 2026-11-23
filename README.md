@@ -1,4 +1,4 @@
-# ClipTrei
+# ClipClick
 
 Aplicatie locala care descarca un video YouTube public, selecteaza trei secvente de 34 de secunde pe baza subtitrarilor disponibile si le exporta vertical, cu subtitrari arse in imagine.
 
