@@ -344,3 +344,29 @@ test("loud moments are sent to the AI as extra candidates, with a hint", async (
   assert.equal(hinted.length, 1, `prompts with the hint: ${hinted.length}`);
   assert.ok(fs.existsSync(path.join(DATA, body.id, "loudness.json")));
 });
+
+test("an empty loudness result is not cached (the next run measures again)", async () => {
+  ollama.mode = "up"; ollama.calls = 0;
+  setControl({ duration: 900, loudnessEmpty: true });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  ollama.mode = "down";
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(fs.existsSync(path.join(DATA, body.id, "loudness.json")), false);
+});
+
+test("Reia after a failed loudness analysis re-asks the AI for windows that now carry the hint", async () => {
+  ollama.mode = "up"; ollama.calls = 0; ollama.prompts = [];
+  setControl({ duration: 900, loudnessFails: true, loudAt: 450 });
+  const first = await post("/api/process", { url: URL_A });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(ollama.prompts.filter((p) => /suddenly loud/.test(p)).length, 0);
+  const folder = path.join(DATA, first.body.id);
+  const project = JSON.parse(fs.readFileSync(path.join(folder, "project.json"), "utf8"));
+  fs.writeFileSync(path.join(folder, "project.json"), JSON.stringify({ ...project, status: "failed", error: "x", clips: [] }));
+  ollama.prompts = [];
+  setControl({ duration: 900, loudAt: 450 });
+  const resumed = await post(`/api/projects/${first.body.id}/resume`, {});
+  ollama.mode = "down";
+  assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+  assert.equal(ollama.prompts.filter((p) => /audio gets suddenly loud around 07:30/.test(p)).length, 1);
+});

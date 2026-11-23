@@ -277,6 +277,8 @@ async function loudnessOf(folder) {
   try {
     await run("ffmpeg", L.loudnessArgs("loudness.txt"), { cwd: folder });
     const rms = L.parseLoudness(fs.readFileSync(temp, "utf8"));
+    // An empty result (unreadable output, no audio frames) is not cached: the next run measures again.
+    if (!rms.length) throw new Error("analiza nu a dat niciun rezultat");
     P.writeJsonAtomic(cacheFile, rms);
     return rms;
   } catch (error) {
@@ -348,7 +350,8 @@ async function chooseMoments(project, folder, words) {
       // Cache entries carry their window, so answers never get matched to a different candidate.
       const cached = readJsonOrNull(file);
       let clip;
-      if (cached && cached.start === candidate.start && cached.end === candidate.end) {
+      // The loudness hint is part of the question: an answer given without it is asked again.
+      if (cached && cached.start === candidate.start && cached.end === candidate.end && cached.loudAt === candidate.loudAt) {
         ({ clip } = cached);
       } else {
         saveStage(project, { aiProgress: { done, total: candidates.length } });
@@ -357,7 +360,7 @@ async function chooseMoments(project, folder, words) {
           clip = lines.length ? AI.parseAnswer(await AI.askOllama(AI.buildPrompt(lines, { language, loudAt: candidate.loudAt })), lines) : null;
           // Only real answers are cached (an unusable answer too, as null): a timeout or a crashed
           // Ollama is retried on „Reia” instead of being remembered as "no moment here".
-          P.writeJsonAtomic(file, { start: candidate.start, end: candidate.end, clip });
+          P.writeJsonAtomic(file, { start: candidate.start, end: candidate.end, loudAt: candidate.loudAt, clip });
         } catch (error) {
           console.warn(`[ai] candidatul ${index + 1}: ${error.message}`);
           clip = null;

@@ -83,6 +83,8 @@ if (command === "ffprobe") {
 if (command === "ffmpeg" && args.some((arg) => arg.includes("astats"))) {
   // Loudness analysis: quiet (-35 dB) with a 5 s burst (-12 dB) at control.loudAt seconds.
   const file = args.find((arg) => arg.includes("astats")).match(/file=([^,:]+)$/)[1];
+  if (control.loudnessFails) fail("Error: simulated loudness failure");
+  if (control.loudnessEmpty) { fs.writeFileSync(file, ""); process.exit(0); }
   const lines = [];
   for (let s = 0; s < duration; s += 1) {
     const loud = control.loudAt !== undefined && s >= control.loudAt && s < control.loudAt + 5;
