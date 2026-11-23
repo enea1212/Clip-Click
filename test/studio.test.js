@@ -162,3 +162,17 @@ test("alignWords keeps diacritics and quotes in the output", () => {
   assert.deepEqual(out.map((w) => w.word), ["„Nimic”", "nu", "s-a", "schimbat."]);
   assert.deepEqual([out[0].start, out[0].end], [0, 0.4]);
 });
+
+test("generateDecors regenerates a decor whose prompt changed, but keeps a hand-placed image", async () => {
+  const env = fakeEnv();
+  try {
+    fs.writeFileSync(path.join(env.folder, "decor-c.png"), "my own image");
+    assert.deepEqual((await S.generateDecors(env.folder, threeDecors())).generated.sort(), ["a", "b"]);
+    assert.deepEqual((await S.generateDecors(env.folder, threeDecors())).generated, [], "nothing changed: no run");
+    const edited = threeDecors();
+    edited.decors[0].prompt = "a highway at night";
+    edited.decors[2].prompt = "a kitchen";
+    assert.deepEqual((await S.generateDecors(env.folder, edited)).generated, ["a"]);
+    assert.equal(fs.readFileSync(path.join(env.folder, "decor-c.png"), "utf8"), "my own image");
+  } finally { env.restore(); }
+});

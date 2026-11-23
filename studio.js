@@ -105,9 +105,15 @@ const DECOR_STEPS = 2;
 const decorFile = (id) => `decor-${id}.png`;
 const seedOf = (text) => crypto.createHash("sha1").update(text).digest().readUInt32BE(0) % 2147483647;
 
-// Generates every decor that has no decor-<id>.png yet, in one imagegen run (the model loads once).
+// Generates, in one imagegen run (the model loads once), every decor that has no image yet or
+// whose prompt changed since it was generated (decors.json: id → prompt). An image placed by
+// hand has no entry there and is never overwritten.
 async function generateDecors(folder, story, { log = () => {} } = {}) {
-  const missing = story.decors.filter((decor) => !fs.existsSync(path.join(folder, decorFile(decor.id))));
+  const recordFile = path.join(folder, "decors.json");
+  let record = {};
+  try { record = JSON.parse(fs.readFileSync(recordFile, "utf8")); } catch { /* none yet */ }
+  const missing = story.decors.filter((decor) => !fs.existsSync(path.join(folder, decorFile(decor.id)))
+    || (record[decor.id] !== undefined && record[decor.id] !== decor.prompt));
   if (!missing.length) return { generated: [] };
   const jobs = {
     model_dir: path.join(MODELS_DIR, "sd-turbo-ov"),
@@ -123,6 +129,8 @@ async function generateDecors(folder, story, { log = () => {} } = {}) {
   }
   const absent = missing.filter((decor) => !fs.existsSync(path.join(folder, decorFile(decor.id))));
   if (absent.length) throw new Error(`Decorul „${absent[0].id}” n-a fost generat.`);
+  for (const decor of missing) record[decor.id] = decor.prompt;
+  fs.writeFileSync(recordFile, JSON.stringify(record, null, 2));
   return { generated: missing.map((decor) => decor.id) };
 }
 
