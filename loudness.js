@@ -77,7 +77,7 @@ function mixCandidates(speechCandidates, events, { count = 10, speech = 5, lengt
     }
     if (chosen.length >= count) break;
     const start = Math.max(0, Math.min(peak - BEFORE, duration - length));
-    add({ start, end: Math.min(duration, start + length), score: event.score, loudAt: peak });
+    add({ start, end: Math.min(duration, start + length), score: event.score, loudAt: peak, origin: "loud" });
   }
   speechCandidates.slice(speech).forEach((candidate) => add({ ...candidate }));
   return chosen;

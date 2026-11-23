@@ -32,7 +32,7 @@ Pentru alegerea momentelor cu AI (local, gratuit) ai nevoie de [Ollama](https://
 ollama pull qwen2.5:7b
 ```
 
-Pe un laptop fara placa video dedicata adauga ~8–10 minute pe video. Fara Ollama, momentele se aleg dupa reguli, ca inainte.
+Pe un laptop fara placa video dedicata, etapa AI dureaza cel mult ~12 minute pe video (plafon; ce nu apuca AI-ul se completeaza dupa reguli). Fara Ollama, momentele se aleg dupa reguli, ca inainte.
 
 Clipurile rezultate se salveaza in `data/<id>/short-1.mp4` etc. Directoarele din `data` pot fi sterse dupa ce descarci clipurile.
 

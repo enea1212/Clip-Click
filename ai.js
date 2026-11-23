@@ -191,6 +191,29 @@ function chooseFinal(aiClips, ruleClips, count = 3) {
 const OLLAMA_URL = process.env.CLIPTREI_OLLAMA_URL || "http://127.0.0.1:11434";
 const MODEL = process.env.CLIPTREI_MODEL || "qwen2.5:7b";
 const ANSWER_TIMEOUT_MS = 180_000;
+// Whole AI stage (all candidates + ranking): 12 min, so it never holds the single heavy job for
+// half an hour. A sixth is kept for the ranking pass. Candidates not asked in time: rules fill.
+const AI_BUDGET_MS = Number(process.env.CLIPTREI_AI_BUDGET_MS) || 720_000;
+const RANK_RESERVE_MS = AI_BUDGET_MS / 6;
+
+// Timeout for the next answer: at most 3 min, and never past the deadline minus `reserve`.
+// ≤ 0 means: don't ask any more.
+// Whole ms: AbortSignal.timeout rejects fractions.
+const timeLeft = (deadline, now, reserve = 0) => Math.floor(Math.min(ANSWER_TIMEOUT_MS, deadline - now - reserve));
+
+// Order in which to ask the candidates: speech and loud windows alternate (speech first), so a
+// budget cut keeps the mix instead of dropping all loud windows, which come last in the list.
+function askOrder(candidates) {
+  const speech = [];
+  const loud = [];
+  candidates.forEach((candidate, index) => (candidate.origin === "loud" ? loud : speech).push(index));
+  const order = [];
+  for (let i = 0; i < Math.max(speech.length, loud.length); i += 1) {
+    if (i < speech.length) order.push(speech[i]);
+    if (i < loud.length) order.push(loud[i]);
+  }
+  return order;
+}
 
 async function fetchJson(url, options, timeoutMs) {
   const response = await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
@@ -220,4 +243,4 @@ async function askOllama(prompt, { url = OLLAMA_URL, model = MODEL, timeoutMs = 
   return result.response;
 }
 
-module.exports = { buildLines, buildPrompt, parseAnswer, buildRankPrompt, parseRanking, pickFinal, chooseFinal, ollamaStatus, askOllama, ANSWER_SCHEMA, RANK_SCHEMA, MIN_CLIP, MAX_CLIP, MODEL };
+module.exports = { buildLines, buildPrompt, parseAnswer, buildRankPrompt, parseRanking, pickFinal, chooseFinal, ollamaStatus, askOllama, timeLeft, askOrder, AI_BUDGET_MS, RANK_RESERVE_MS, ANSWER_TIMEOUT_MS, ANSWER_SCHEMA, RANK_SCHEMA, MIN_CLIP, MAX_CLIP, MODEL };

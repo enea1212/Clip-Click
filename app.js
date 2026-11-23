@@ -106,9 +106,11 @@ form.addEventListener("submit", async (event) => {
   let transcribe = false;
   let estimate = 0;
   let aiReady = false;
+  let aiMinutes = 12;
   try {
     const info = await api("/api/inspect", { method: "POST", body: { url } });
     aiReady = info.ai?.ok === true;
+    aiMinutes = info.aiMinutes || aiMinutes;
     if (!info.hasSubtitles && !info.whisperAvailable) {
       throw new Error("Videoul nu are subtitrări, iar transcrierea locală nu e instalată. Instalează faster-whisper: python -m pip install --user faster-whisper");
     }
@@ -135,10 +137,10 @@ form.addEventListener("submit", async (event) => {
   $("#video-label").textContent = transcribe
     ? `Descarcăm video-ul, îl transcriem cu Whisper, ${choose} și randăm clipurile.`
     : `Descarcăm video-ul, ${choose} și randăm clipurile.`;
-  const aiMinutes = aiReady ? " AI-ul mai adaugă cam 7–9 minute." : "";
+  const aiNote = aiReady ? ` AI-ul mai adaugă cel mult ${aiMinutes} minute.` : "";
   showMessage("loading", "Pregătim cele 3 Shorts", transcribe
-    ? `Transcrierea durează cam ${estimate} minute, plus descărcarea.${aiMinutes} Poți închide pagina: proiectul apare în „Proiectele mele” când e gata.`
-    : `Poate dura câteva minute, în funcție de lungimea videoclipului.${aiMinutes} Poți urmări progresul în „Proiectele mele”.`);
+    ? `Transcrierea durează cam ${estimate} minute, plus descărcarea.${aiNote} Poți închide pagina: proiectul apare în „Proiectele mele” când e gata.`
+    : `Poate dura câteva minute, în funcție de lungimea videoclipului.${aiNote} Poți urmări progresul în „Proiectele mele”.`);
   const token = viewToken;
   try {
     const project = await api("/api/process", { method: "POST", body: { url, transcribe } });
@@ -194,7 +196,12 @@ const STAGE_LABELS = {
 // Stage text, with the AI's progress while it scores candidates ("AI notează momentele: 4/10").
 function stageLabel(item) {
   if (item.status === "choosing" && item.aiProgress?.ranking) return "AI compară momentele…";
-  if (item.status === "choosing" && item.aiProgress?.total) return `AI notează momentele: ${item.aiProgress.done}/${item.aiProgress.total}`;
+  if (item.status === "choosing" && item.aiProgress?.total) {
+    const { done, total, deadline } = item.aiProgress;
+    // The AI stage has a time cap: show how long it can still take, at most.
+    const left = deadline ? ` · mai are cel mult ${Math.max(1, Math.ceil((deadline - Date.now()) / 60_000))} min` : "";
+    return `AI notează momentele: ${done}/${total}${left}`;
+  }
   return STAGE_LABELS[item.status] || "se procesează…";
 }
 

@@ -43,12 +43,14 @@ const fakeOllama = http.createServer((req, res) => {
     }
     ollama.calls += 1;
     (ollama.prompts = ollama.prompts || []).push(request.prompt);
+    // ollama.delay (ms): a slow model, to hit the AI time budget (CLIPTREI_AI_BUDGET_MS below).
+    const delay = ollama.delay || 0;
     const lines = (JSON.parse(body).prompt.match(/^\[\d+\]/gm) || []).length;
     // Score grows with the call number so the pick is deterministic; span: lines 2..9 (~30 s).
     const answer = ollama.mode === "garbage-first" && ollama.calls === 1
       ? "not json at all"
       : JSON.stringify({ kind: "podcast", score: Math.min(10, ollama.calls), start_line: 2, end_line: Math.min(9, lines - 1), title: `Titlu ${ollama.calls}`, reason: `Motiv ${ollama.calls}` });
-    res.end(JSON.stringify({ response: answer }));
+    setTimeout(() => res.end(JSON.stringify({ response: answer })), delay);
   });
 });
 const calls = () => (fs.existsSync(`${CONTROL}.log`) ? fs.readFileSync(`${CONTROL}.log`, "utf8").trim().split("\n") : []);
@@ -63,7 +65,7 @@ test.before(async () => {
   await new Promise((resolve) => fakeOllama.listen(OLLAMA_PORT, "127.0.0.1", resolve));
   server = spawn(process.execPath, [path.join(ROOT, "server.js")], {
     // CLIPTREI_OLLAMA_URL always points at the fake: the tests must never call a real model.
-    env: { ...process.env, PORT: String(PORT), CLIPTREI_DATA_DIR: DATA, CLIPTREI_SATISFYING_DIR: SATISFYING, CLIPTREI_FAKE_TOOLS: path.join(ROOT, "testing", "fake-tools.js"), CLIPTREI_FAKE_CONTROL: CONTROL, CLIPTREI_OLLAMA_URL: `http://127.0.0.1:${OLLAMA_PORT}` },
+    env: { ...process.env, PORT: String(PORT), CLIPTREI_DATA_DIR: DATA, CLIPTREI_SATISFYING_DIR: SATISFYING, CLIPTREI_FAKE_TOOLS: path.join(ROOT, "testing", "fake-tools.js"), CLIPTREI_FAKE_CONTROL: CONTROL, CLIPTREI_OLLAMA_URL: `http://127.0.0.1:${OLLAMA_PORT}`, CLIPTREI_AI_BUDGET_MS: "4000" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   await new Promise((resolve, reject) => {
@@ -369,4 +371,19 @@ test("Reia after a failed loudness analysis re-asks the AI for windows that now 
   ollama.mode = "down";
   assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
   assert.equal(ollama.prompts.filter((p) => /audio gets suddenly loud around 07:30/.test(p)).length, 1);
+});
+
+test("AI time budget: a slow Ollama is cut off, rules fill, unasked candidates are not cached", async () => {
+  ollama.mode = "up"; ollama.delay = 1500; ollama.calls = 0;
+  setControl({ duration: 900 });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  ollama.delay = 0; ollama.mode = "down";
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.status, "ready");
+  assert.ok(ollama.calls >= 1 && ollama.calls <= 3, `calls ${ollama.calls}`);
+  assert.match(body.selectionNote || "", /^AI-ul a avut timp pentru \d+ din 10 momente$/);
+  assert.ok(body.clips.some((c) => c.source === "reguli"));
+  const cached = fs.readdirSync(path.join(DATA, body.id, "ai")).filter((name) => name.startsWith("candidate-"));
+  assert.ok(cached.length < 10 && cached.length <= ollama.calls, `cached ${cached.length}, calls ${ollama.calls}`);
+  assert.equal(body.aiProgress.deadline, undefined);
 });
