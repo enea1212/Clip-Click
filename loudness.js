@@ -66,14 +66,20 @@ function mixCandidates(speechCandidates, events, { count = 10, speech = 5, lengt
   const add = (candidate) => {
     if (chosen.length < count && chosen.every((other) => !overlaps(other, candidate))) chosen.push(candidate);
   };
-  speechCandidates.slice(0, speech).forEach(add);
+  speechCandidates.slice(0, speech).forEach((candidate) => add({ ...candidate }));
   for (const event of events) {
-    if (chosen.length >= count) break;
     const peak = event.at ?? event.start;
+    // Already inside a chosen window: that window gets the hint instead of a second window.
+    const holder = chosen.find((candidate) => peak >= candidate.start && peak < candidate.end);
+    if (holder) {
+      if (holder.loudAt === undefined) holder.loudAt = peak;
+      continue;
+    }
+    if (chosen.length >= count) break;
     const start = Math.max(0, Math.min(peak - BEFORE, duration - length));
     add({ start, end: Math.min(duration, start + length), score: event.score, loudAt: peak });
   }
-  speechCandidates.slice(speech).forEach(add);
+  speechCandidates.slice(speech).forEach((candidate) => add({ ...candidate }));
   return chosen;
 }
 

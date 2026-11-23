@@ -57,14 +57,22 @@ test("mixCandidates: 5 speech + audio windows around peaks, no overlaps, filled 
   const mixed = L.mixCandidates(speech, events, { count: 10, speech: 5, length: 75, duration: 4000 });
   assert.equal(mixed.length, 10);
   const audio = mixed.filter((c) => c.loudAt !== undefined);
-  // The event at 30 s overlaps the first speech window (0–75), so it is skipped.
-  assert.deepEqual(audio.map((c) => [c.start, c.end, c.loudAt]), [[2000, 2075, 2040], [2960, 3035, 3000]]);
+  // The event at 30 s lies inside the first speech window (0–75): that window gets the hint.
+  assert.deepEqual(audio.map((c) => [c.start, c.end, c.loudAt]), [[0, 75, 30], [2000, 2075, 2040], [2960, 3035, 3000]]);
   const sorted = [...mixed].sort((a, b) => a.start - b.start);
   for (let i = 1; i < sorted.length; i += 1) assert.ok(sorted[i].start >= sorted[i - 1].end, "no overlap");
-  assert.equal(mixed.filter((c) => c.loudAt === undefined).length, 8, "5 speech + 3 filled from speech");
+  assert.equal(mixed.length - 2, 8, "5 speech (one hinted) + 3 filled from speech, besides the 2 audio windows");
+  assert.equal(speech[0].loudAt, undefined, "input not modified");
 });
 
 test("mixCandidates: windows are clamped to the video", () => {
   const mixed = L.mixCandidates([], [{ start: 10, end: 12, peak: 20, score: 40 }, { start: 990, end: 995, peak: 20, score: 30 }], { count: 10, speech: 5, length: 75, duration: 1000 });
   assert.deepEqual(mixed.map((c) => [c.start, c.end]), [[0, 75], [925, 1000]]);
+});
+
+test("mixCandidates: a loud moment inside an already chosen window marks that window instead of being dropped", () => {
+  const speech = [{ start: 405, end: 480, score: 5 }];
+  const mixed = L.mixCandidates(speech, [{ start: 450, end: 454, at: 450, peak: 23, score: 50 }], { count: 10, speech: 5, length: 75, duration: 900 });
+  assert.equal(mixed.length, 1);
+  assert.equal(mixed[0].loudAt, 450);
 });

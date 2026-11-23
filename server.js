@@ -7,6 +7,7 @@ const { randomUUID } = require("node:crypto");
 const { parseVttWords, groupWords, buildAss, pickCaptionTrack } = require("./subtitles");
 const { chooseClips, chooseCandidates } = require("./clips");
 const AI = require("./ai");
+const L = require("./loudness");
 const { clipArgs, rawPreviewArgs, satPreviewArgs, probeArgs, parseProbe } = require("./render");
 const P = require("./projects");
 const { resolveStatic, decodePath, parseRange, checkRequest } = require("./http-utils");
@@ -266,6 +267,26 @@ const subtitleArgs = (transcribe) => (transcribe ? [] : ["--write-auto-subs", "-
 
 const saveStage = (project, changes) => { Object.assign(project, changes); P.saveProject(DATA_DIR, project); };
 
+// Per-second loudness of the video (dB), measured once with ffmpeg (~47 s for 6 h) and cached in
+// loudness.json. Any failure → [] (no audio candidates), never a processing error.
+async function loudnessOf(folder) {
+  const cacheFile = path.join(folder, "loudness.json");
+  const cached = readJsonOrNull(cacheFile);
+  if (Array.isArray(cached)) return cached;
+  const temp = path.join(folder, "loudness.txt");
+  try {
+    await run("ffmpeg", L.loudnessArgs("loudness.txt"), { cwd: folder });
+    const rms = L.parseLoudness(fs.readFileSync(temp, "utf8"));
+    P.writeJsonAtomic(cacheFile, rms);
+    return rms;
+  } catch (error) {
+    console.warn(`[sunet] analiza volumului: ${error.message}`);
+    return [];
+  } finally {
+    fs.rmSync(temp, { force: true });
+  }
+}
+
 // A cache file that is missing or unreadable (e.g. cut off by a crash) counts as "not done yet".
 function readJsonOrNull(file) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; }
@@ -314,7 +335,9 @@ async function chooseMoments(project, folder, words) {
   const aiClips = [];
   let note = ai.ok ? undefined : ai.reason;
   if (ai.ok) {
-    const candidates = chooseCandidates(transcript, { count: 10, length: 75 });
+    // 5 speech-dense windows + 5 around the loudest moments (reactions with little speech).
+    const rms = await loudnessOf(folder);
+    const candidates = L.mixCandidates(chooseCandidates(transcript, { count: 10, length: 75 }), L.loudEvents(rms), { count: 10, speech: 5, length: 75, duration: rms.length || Infinity });
     const aiDir = path.join(folder, "ai");
     fs.mkdirSync(aiDir, { recursive: true });
     const language = transcriptLanguage(project, folder);
@@ -331,7 +354,7 @@ async function chooseMoments(project, folder, words) {
         saveStage(project, { aiProgress: { done, total: candidates.length } });
         const lines = AI.buildLines(words, candidate.start, candidate.end);
         try {
-          clip = lines.length ? AI.parseAnswer(await AI.askOllama(AI.buildPrompt(lines, { language })), lines) : null;
+          clip = lines.length ? AI.parseAnswer(await AI.askOllama(AI.buildPrompt(lines, { language, loudAt: candidate.loudAt })), lines) : null;
           // Only real answers are cached (an unusable answer too, as null): a timeout or a crashed
           // Ollama is retried on „Reia” instead of being remembered as "no moment here".
           P.writeJsonAtomic(file, { start: candidate.start, end: candidate.end, clip });

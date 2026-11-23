@@ -42,6 +42,7 @@ const fakeOllama = http.createServer((req, res) => {
       return;
     }
     ollama.calls += 1;
+    (ollama.prompts = ollama.prompts || []).push(request.prompt);
     const lines = (JSON.parse(body).prompt.match(/^\[\d+\]/gm) || []).length;
     // Score grows with the call number so the pick is deterministic; span: lines 2..9 (~30 s).
     const answer = ollama.mode === "garbage-first" && ollama.calls === 1
@@ -331,4 +332,15 @@ test("Alege din nou cu AI is refused while a clip of the project is being re-ren
   ollama.mode = "down";
   assert.equal(refused.status, 409, JSON.stringify(refused.body));
   assert.equal((await render).status, 200);
+});
+
+test("loud moments are sent to the AI as extra candidates, with a hint", async () => {
+  ollama.mode = "up"; ollama.calls = 0; ollama.prompts = [];
+  setControl({ duration: 900, loudAt: 450 });
+  const { status, body } = await post("/api/process", { url: URL_A });
+  ollama.mode = "down";
+  assert.equal(status, 200, JSON.stringify(body));
+  const hinted = ollama.prompts.filter((p) => /audio gets suddenly loud around 07:30/.test(p));
+  assert.equal(hinted.length, 1, `prompts with the hint: ${hinted.length}`);
+  assert.ok(fs.existsSync(path.join(DATA, body.id, "loudness.json")));
 });

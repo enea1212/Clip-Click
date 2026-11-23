@@ -56,7 +56,7 @@ const LANGUAGE_NAMES = { en: "English", ro: "Romanian", de: "German", fr: "Frenc
 // English prompt (the model follows it best); title in the video's language, reason in Romanian.
 // The language is named explicitly when known: "same language as the transcript" alone made the
 // 7b model write Romanian titles for English videos.
-function buildPrompt(lines, { language } = {}) {
+function buildPrompt(lines, { language, loudAt } = {}) {
   const languageName = LANGUAGE_NAMES[String(language || "").slice(0, 2)];
   const titleRule = languageName
     ? `title (a catchy Short title, max 12 words). The title MUST be written in ${languageName}, the language of the transcript`
@@ -74,6 +74,8 @@ function buildPrompt(lines, { language } = {}) {
     "reason (why this moment works, max 15 words). The reason MUST be written in Romanian (limba română),",
     "whatever the language of the transcript, e.g. \"Reacție amuzantă la o greșeală neașteptată.\"",
     "",
+    // Candidates chosen for a loudness peak: tell the model, since the transcript can't show it.
+    ...(loudAt !== undefined ? [`Note: the audio gets suddenly loud around ${mmss(loudAt)} (possible shouting, laughter or a big reaction).`] : []),
     "Transcript (line number, time, text):",
     ...lines.map((line) => `[${line.i}] ${mmss(line.start)} ${line.text}`),
   ].join("\n");
