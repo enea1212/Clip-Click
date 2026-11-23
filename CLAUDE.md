@@ -14,6 +14,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **Fără anulare** pentru transcrierea lungă: procesarea merge până la capăt, iar proiectul apare în listă.
 - **Un singur video procesat odată**: al doilea e refuzat cu mesaj, fără coadă (A). Procesarea căzută sau întreruptă se reia manual cu „Reia”, nu automat.
 - **Momente alese cu AI local** (Ollama `qwen2.5:7b`, gratuit, A), pentru streamuri și podcasturi (C), lungime naturală 20–50 s la limită de frază (A, lărgită în cod la ≥ 30 s), 10 candidați (B), preselecție după reguli + AI (1). Fără Ollama → reguli, fără eroare.
+- 2026-11-23 — **Preselecția AI: 5 după vorbire + 5 după vârfurile de sunet (A)**: pe GTA, regulile după vorbire ratau 11 din 12 reacții puternice.
 - Git: repo `enea1212/Clip-Click` (public), branch `main`. **Commit și push la final de funcționalitate. De acum, fiecare funcționalitate nouă pe branch-ul ei.**
 - Conversația cu Claude se ține în română.
 
@@ -28,7 +29,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - `subtitles.js`: VTT → cuvinte, grupare, fișier `.ass` karaoke. `clips.js`: alegerea celor 3 momente. `pauses.js`: segmente de vorbire și mutarea cuvintelor pe cronologia tăiată.
 - `layout.js`: formula de zoom și graful de filtre ffmpeg; e folosit și în browser, pentru previzualizare. `render.js`: argumentele pentru ffmpeg/ffprobe.
 - `whisper.js` + `transcribe.py`: transcrierea locală (videourile lungi pe bucăți de 10 min). `proc.js`: rularea proceselor externe (decodare UTF-8 corectă). `projects.js`: `project.json`, lista de proiecte, blocările, alegerea gameplay-ului. `http-utils.js`: servire statică sigură.
-- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `loudness.js`: volum pe secundă, vârfuri, amestec de candidați. `test/`: testele (142, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
+- `app.js`, `index.html`, `ui.css`, `styles.css`: interfața. `pipeline.js`: etapele procesării și reluarea. `ai.js`: alegerea momentelor cu Ollama (linii, prompt, validare, clasare, rezervă). `loudness.js`: volum pe secundă, vârfuri, amestec de candidați. `test/`: testele (144, inclusiv `server.test.js` end-to-end). `testing/fake-tools.js`: unelte false pentru teste.
 - `docs/superpowers/specs|plans/`: designuri și planuri. `docs/jurnal.md`: istoricul sesiunilor.
 - Ignorate: `data/` (proiecte și videouri, pot avea GB), `satisfying/`, `.superpowers/` (jurnale de execuție și copii ale fișierelor vechi), `.playwright-mcp/`.
 
@@ -38,6 +39,8 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Transcriere completă TED 14 min (2 bucăți) + descărcare + 3 randări: 439 s.
 - Re-randare clip după „Aplică”: ~30 s (plus ~40 s Whisper la primul „Aplică” pe proiecte vechi).
 - Video de 6 h (stream): descărcare 6,7 GB în ~5 min; transcriere completă estimată la ~166 min.
+- AI (`qwen2.5:7b`, CPU): ~60 s/candidat. TED 14 min: 464 s total. Stream GTA 6 h, din subtitrări existente: 939 s total (analiză volum + 10 candidați + clasare + 3 randări).
+- Analiza volumului pe 6 h: 47 s. Vârfuri mari care ajung la AI pe GTA: 1/12 → 6/12 cu preselecția după sunet.
 
 ## Capcane cunoscute
 - `faster-whisper` 1.2.1 + `av` 19 crapă (`open()` nu mai acceptă `metadata_errors`). Ocolire: `transcribe.py` citește WAV-ul cu `wave` + numpy și îi dă lui Whisper eșantioanele.
@@ -57,13 +60,20 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - Modelul `qwen2.5:7b`: notat separat dă aceeași notă (7/10) tuturor candidaților → runda de clasare comparativă decide; ignoră cererea de lungime → lărgire în cod; amestecă limbile dacă nu i le spui explicit. Testele de server folosesc mereu un Ollama fals (`CLIPTREI_OLLAMA_URL`): nu apelează niciodată modelul real.
 - Browserul ținea `ui.css` vechi în cache. Fișierele aplicației se servesc acum cu `Cache-Control: no-cache`.
 
-## Unde am rămas
-Funcționalitatea Whisper + tăierea pauzelor e **gata**: toate task-urile, review-ul final și reparațiile lui au commit și sunt urcate pe `main`. Probleme mici amânate: drift de până la un cadru pe segment tăiat, coduri de limbă nealiniate între `/api/inspect` și `--sub-langs`, VTT descărcate inutil la `transcribe: true`. Lista completă e în `.superpowers/sdd/2026-11-22-whisper-pauses/progress.md`.
+## Unde am rămas (2026-11-23)
+Totul e în `main`, fără PR-uri deschise (PR #1–#8): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, **alegerea momentelor cu AI** (#7) și **preselecția după sunet** (#8: 5 candidați după vorbire + 5 în jurul vârfurilor de volum, cu indiciu în prompt). 144 de teste.
 
-Robustețea, testele end-to-end, „LOCUL n DIN 3” și problemele mici sunt în `main` (PR #1–#6).
+Primul test real pe stream (GTA 6 h, proiect `data/eafb540b…`, video legat prin hardlink din `data/29520ba6…`, deci fără 6,7 GB în plus): **locurile 1 și 2 alese de AI vin din vârfurile de sunet** (5:35:59 „Never Getting the Good Ending”, 5:54:03 „It Worked! Then Faked It”), locul 3 din vorbire. Enea încă n-a verificat dacă momentele sunt bune.
 
-**Alegerea momentelor cu AI** e în `main` (PR #7): Ollama `qwen2.5:7b` notează 10 candidați, apoi o rundă de clasare comparativă; titlu + motiv pe card; rezervă pe reguli; „Alege din nou cu AI”. Măsurat pe TED: ~60 s/candidat, total 464 s. Probleme amânate: fără limită totală de timp pentru etapa AI; ecranul „Alege din nou” fără progres.
+### Următoarele sarcini (cerute de Enea pe 2026-11-23, în ordinea asta, fiecare pe branch-ul ei)
+1. ~~Actualizarea documentației~~ (făcută la salvarea contextului).
+2. **Limită totală de timp pentru etapa AI** (~12 min). Ce nu apucă AI-ul se completează din reguli; estimarea se afișează la pornire, ca la Whisper. Acum, în cel mai rău caz, etapa depășește 30 min și blochează singurul job greu.
+3. **Descărcarea doar a bucăților necesare.** Întâi doar audio (+ subtitrări), suficient pentru transcriere, analiza volumului și AI; apoi doar cele 3 segmente video (yt-dlp `--download-sections`), plus fereastra pentru „Aplică”. Pe stream-ul de 6 h: 6,7 GB → câteva sute de MB. De gândit: cum se comportă „Aplică”/zoom și „Alege din nou cu AI”, care acum refolosesc `source.mp4`.
 
-**Preselecție după sunet** (2026-11-23, branch `feature/preselectie-sunet`, PR deschis): candidații AI sunt 5 după vorbire + 5 în jurul celor mai puternice vârfuri de volum (`loudness.js`, `loudness.json`), cu indiciu în prompt. Motiv: pe stream-ul GTA de 6 h doar 1 din cele 12 vârfuri mari ajungea la AI; acum 6 (măsurat pe preselecție, fără rulare AI completă pe GTA).
-
-Următorul pas: merge la PR-ul de preselecție după sunet, apoi o rulare AI completă pe un stream (ex. GTA, fără re-descărcare) ca să vezi ce clipuri alege.
+### După aceea (propuse, neprioritizate)
+- Clasarea AI să vadă tot textul clipului, nu doar titlul + primele 40 de cuvinte.
+- Tipul videoului (stream/podcast) stabilit o singură dată, nu pe fiecare candidat.
+- Verificare ieftină a limbii titlului (2/9 greșite pe TED) și a românei din motive.
+- Mutarea încadrării stânga/dreapta (pan), pentru camera din colț la streamuri.
+- Videouri de pe TikTok/Instagram (yt-dlp le suportă deja).
+- Probleme mici amânate: în `.superpowers/sdd/*/progress.md` (rânduri „minor (deferred)”).

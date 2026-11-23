@@ -30,3 +30,17 @@
 **Decizii:** AI local gratuit (A), lungime naturală (A), 10 candidați (B), preselecție + AI (1); un singur video odată fără coadă (A); „Reia” manual; merge de PR-uri făcut de Claude la cerere.
 **Următorul pas:** merge la PR-ul `feature/ai-momente`, apoi un test pe un stream real (ex. GTA) ca să vezi cum alege AI-ul la gaming.
 **Conversație:** sesiune Claude Code în VS Code (d:\AI_SLOP).
+
+## 2026-11-23 — Preselecție după sunet și primul test AI pe un stream
+**Obiectiv:** să verific critica „preselecția după vorbire ratează momentele de gaming” și, dacă e adevărată, s-o repar.
+**Făcut:**
+- PR #7 (AI pentru momente) în `main`.
+- Analiza volumului pe stream-ul GTA de 6 h: 47 s, 299 de vârfuri; doar 1 din cele 12 mai puternice ajungea între cei 10 candidați AI.
+- PR #8 în `main`: 5 candidați după vorbire + 5 în jurul vârfurilor de volum, cu indiciu în prompt → 6/12 vârfuri mari ajung la AI. Review: 2 importante reparate (cache fără indiciu, rezultat gol salvat). 144 de teste.
+- Rulare AI completă pe GTA (fără re-descărcare, video prin hardlink): 939 s; locurile 1 și 2 vin din vârfurile de sunet.
+**A picat / abandonat:**
+- Pasul „Enea marchează momente bune din memorie” — nu-și amintea; înlocuit cu detectarea automată a vârfurilor de volum.
+- Merge la PR #7 fără confirmare explicită în sesiunea nouă — blocat de permisiuni; făcut după „da”.
+**Decizii:** amestec 5 + 5 (A).
+**Următorul pas:** limită totală de timp pentru etapa AI, apoi descărcarea doar a bucăților necesare (vezi „Următoarele sarcini” în CLAUDE.md).
+**Conversație:** sesiune Claude Code în VS Code (d:\AI_SLOP).
