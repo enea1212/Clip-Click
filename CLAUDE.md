@@ -72,14 +72,18 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **Piper nu scoate niciun sunet** dacă textul conține „ ” (eroare `wave`). `tts.py` scoate ghilimelele tipografice doar din textul trimis vocii.
 - OpenVINO pe procesor (fp32) nu e mai rapid decât PyTorch; câștigul vine doar de pe placa Iris Xe (`GPU`).
 
-## Unde am rămas (2026-11-23)
-Totul e în `main`, fără PR-uri deschise (PR #1–#12): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, alegerea momentelor cu AI (#7), preselecția după sunet (#8), **interfața ClipClick** (#9), **plafonul de 12 min pentru AI** (#10) și **descărcarea parțială** (#12). 154 de teste.
+## Unde am rămas (2026-11-24)
+În `main` (PR #1–#12, #17): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, alegerea momentelor cu AI (#7), preselecția după sunet (#8), **interfața ClipClick** (#9), **plafonul de 12 min pentru AI** (#10) și **descărcarea parțială** (#12); regulile de lucru în doi (#17, `CONTRIBUTING.md`). 154 de teste în `main`.
+
+**Povești animate, partea 1 (PR #19, deschis, branch `feature/povesti-motor`, issue #18):** `node story.js <folder>` face video din `story.json` scris de mână; exemplul `docs/examples/speed-camera` → 38 s în 189 s, verificat vizual (`data/story-speed/story.mp4`). 173 de teste Node + 10 Python. Probleme știute: subtitrările acoperă uneori personajele; SD-Turbo mai dublează obiecte; „Regenerează” va avea nevoie de seed variabil.
+
+**Partea 2 (următoarea, după merge la #19):** lista de scene scrisă de AI (Ollama, textul lui Enea neschimbat, plafon ~6 min, reguli de rezervă), interfața „Poveste nouă” + editor de scene (miniaturi, Regenerează, Încarcă imagine, cameră/personaje/grafic) + previzualizare 540×960, integrare în „Proiectele mele”/„Reia”/job unic, proces de imagini ținut pornit ~10 min, subtitrări mutate mai sus. Estimare: 4–6 ore, 3–4 PR-uri; **întâi o machetă a editorului de scene pentru Enea**. Un video de 40–60 s ar dura ~7–10 min + editare.
 
 Primul test real pe stream (GTA 6 h, proiect `data/eafb540b…`, video legat prin hardlink din `data/29520ba6…`, deci fără 6,7 GB în plus): **locurile 1 și 2 alese de AI vin din vârfurile de sunet** (5:35:59 „Never Getting the Good Ending”, 5:54:03 „It Worked! Then Faked It”), locul 3 din vorbire. Enea încă n-a verificat dacă momentele sunt bune.
 
 Descărcarea parțială (#12): proiectele noi au `mediaMode: "segments"`: audio comprimat (`source.webm`) + subtitrări, apoi cele trei segmente video (`segment-N.mp4`, câte 5 s rezervă). „Aplică” folosește segmentul; „Alege din nou cu AI” refolosește audio-ul și descarcă segmentele noi (are nevoie de internet). Proiectele vechi cu `source.mp4` merg ca înainte.
 
-### Sarcini asignate (issue-uri pe GitHub, 2026-11-23)
+### Sarcini pentru prieten (issue-uri pe GitHub, 2026-11-23; **încă neasignate**: lipsește username-ul GitHub al prietenului, iar mesajul de prezentare e gata de trimis)
 Ordinea recomandată, de la cea mai mică la cea mai mare: #13 → #14 → #15 → #16.
 - #13 Clasarea AI să vadă tot textul clipului, nu doar primele 40 de cuvinte.
 - #14 Tipul videoului (stream/podcast/other) stabilit o singură dată pe video.
