@@ -243,3 +243,15 @@ test("image worker rejects the current job when the process dies and restarts", 
     assert.equal(items.length, 1);
   } finally { worker.stop(); env.restore(); }
 });
+
+test("decors use SDXL-Turbo (OpenVINO) with the VAE in full precision", async () => {
+  const env = fakeEnv();
+  try {
+    await S.generateDecors(env.folder, threeDecors());
+    const jobs = JSON.parse(fs.readFileSync(path.join(env.folder, "decor-jobs.json"), "utf8"));
+    assert.equal(path.basename(jobs.model_dir), "sdxl-turbo-ov");
+    assert.equal(jobs.pipeline, "sdxl");
+    assert.equal(jobs.vae_f32, true);
+    assert.match(S.DECOR_STYLE, /Pixar style/);
+  } finally { env.restore(); }
+});

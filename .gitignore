@@ -6,3 +6,4 @@ satisfying/
 studio/venv/
 models/
 __pycache__/
+kernel.errors.txt

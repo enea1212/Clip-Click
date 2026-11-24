@@ -16,10 +16,11 @@ PY = os.path.join(VENV, "Scripts" if os.name == "nt" else "bin", "python.exe" if
 MODELS = os.environ.get("CLIPTREI_MODELS_DIR") or os.path.join(ROOT, "models")
 ESRGAN_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth"
 KOKORO_URL ="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
-CONVERT = """
+# SDXL-Turbo already converted to OpenVINO int8 (Stability AI Community License, like SD-Turbo).
+DOWNLOAD_SDXL = """
 import sys
-from optimum.intel import OVStableDiffusionPipeline
-OVStableDiffusionPipeline.from_pretrained("stabilityai/sd-turbo", export=True, compile=False).save_pretrained(sys.argv[1])
+from huggingface_hub import snapshot_download
+snapshot_download("rupeshs/sdxl-turbo-openvino-int8", local_dir=sys.argv[1])
 """
 
 
@@ -63,12 +64,12 @@ def main():
         urllib.request.urlretrieve(ESRGAN_URL, esrgan + ".part")
         os.replace(esrgan + ".part", esrgan)
 
-    step("SD-Turbo pentru OpenVINO (models/sd-turbo-ov)")
-    target = os.path.join(MODELS, "sd-turbo-ov")
+    step("SDXL-Turbo pentru OpenVINO, int8 (models/sdxl-turbo-ov, ~4,5 GB)")
+    target = os.path.join(MODELS, "sdxl-turbo-ov")
     if not os.path.exists(os.path.join(target, "model_index.json")):
         own_cache = "HF_HOME" not in os.environ
         cache = os.environ.get("HF_HOME") or os.path.join(MODELS, ".hf-tmp")
-        run(PY, "-c", CONVERT, target, env={**os.environ, "HF_HOME": cache})
+        run(PY, "-c", DOWNLOAD_SDXL, target, env={**os.environ, "HF_HOME": cache})
         if own_cache:
             shutil.rmtree(cache, ignore_errors=True)
 
