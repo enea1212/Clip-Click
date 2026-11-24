@@ -1,0 +1,41 @@
+{
+  "language": "en",
+  "narrator": { "voice": "am_michael" },
+  "characters": [
+    { "name": "DRIVER", "look": { "skin": "#f2d3b1", "hair": "short", "shirt": "#3b82f6" } },
+    { "name": "MAYOR", "look": { "skin": "#e0ac69", "hair": "cap", "shirt": "#ef4444" }, "voice": "bm_george" }
+  ],
+  "decors": [
+    { "id": "street", "prompt": "a busy city street in Stockholm with apartment buildings and parked cars, seen from the sidewalk" },
+    { "id": "camera", "prompt": "a yellow speed camera box on a pole next to a city street, cars approaching" },
+    { "id": "office", "prompt": "a city hall office with a big wooden desk, a window and a map of the city on the wall" },
+    { "id": "mailbox", "prompt": "a white suburban house with a black mailbox and a picket fence, green lawn" },
+    { "id": "sign", "prompt": "a city street with a large roadside display screen, trees, calm traffic" },
+    { "id": "livingroom", "prompt": "a cozy living room with a big flat screen TV on the wall, blue sofa, wooden floor" }
+  ],
+  "scenes": [
+    { "text": "In 2010, one street in Stockholm had a speeding problem.", "decor": "street", "camera": "zoom-in",
+      "characters": [{ "name": "DRIVER", "expression": "smug", "position": "left" }], "overlay": { "type": "badge", "text": "52 KM/H" } },
+    { "text": "The limit was thirty. Almost nobody cared.", "decor": "camera", "camera": "pan-left",
+      "overlay": { "type": "sign", "text": "SPEED LIMIT 30" } },
+    { "text": "Bigger fines? Drivers just paid them.", "decor": "camera", "camera": "zoom-out",
+      "characters": [{ "name": "DRIVER", "expression": "happy", "position": "right" }], "overlay": { "type": "flash", "text": "" } },
+    { "text": "So the city tried something nobody expected.", "decor": "office", "camera": "zoom-in",
+      "characters": [{ "name": "MAYOR", "expression": "neutral", "position": "center" }] },
+    { "text": "What if we paid the drivers who slow down?", "decor": "office", "camera": "static", "speaker": "MAYOR",
+      "characters": [{ "name": "MAYOR", "expression": "smug", "position": "center" }], "overlay": { "type": "emoji", "text": "💡" } },
+    { "text": "The camera still caught the speeders.", "decor": "camera", "camera": "zoom-in",
+      "characters": [{ "name": "DRIVER", "expression": "surprised", "position": "left" }], "overlay": { "type": "flash", "text": "" } },
+    { "text": "But every driver under the limit got a lottery ticket.", "decor": "sign", "camera": "pan-right",
+      "overlay": { "type": "sign", "text": "UNDER THE LIMIT? YOU COULD WIN!" } },
+    { "text": "And the prize came from the speeders' fines.", "decor": "mailbox", "camera": "zoom-in",
+      "characters": [{ "name": "DRIVER", "expression": "surprised", "position": "right" }], "overlay": { "type": "money", "text": "" } },
+    { "text": "The next morning, the street was different.", "decor": "street", "camera": "pan-left" },
+    { "text": "Average speed dropped from thirty-two to twenty-five.", "decor": "sign", "camera": "zoom-in",
+      "overlay": { "type": "badge", "text": "+ 25 KM/H" } },
+    { "text": "Same street. Same drivers. One small reward.", "decor": "street", "camera": "zoom-out",
+      "characters": [{ "name": "DRIVER", "expression": "happy", "position": "left" }, { "name": "MAYOR", "expression": "happy", "position": "right" }] },
+    { "text": "Would you slow down for a chance to win?", "decor": "livingroom", "camera": "zoom-in",
+      "characters": [{ "name": "DRIVER", "expression": "neutral", "position": "center" }], "overlay": { "type": "emoji", "text": "🤔" } }
+  ]
+}

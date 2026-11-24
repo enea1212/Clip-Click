@@ -65,3 +65,20 @@
 **Verificare:** testele automate nu au fost rulate în această sesiune.
 **Următorul pas:** review și merge pe branch-ul lui, apoi verifică exporturile pe stream-ul GTA. Urmează estimarea descărcării inițiale și alte îmbunătățiri din lista propusă, dacă rămân prioritare.
 **Conversație:** sesiune Codex în VS Code (d:\AI_SLOP).
+
+## 2026-11-23/24 — Verificări, limită AI, descărcare parțială, lucru în doi, povești animate (partea 1)
+**Obiectiv:** să verific munca făcută fără Claude, să închei sarcinile 2–3 și să pornesc funcția de povești animate pentru TikTok.
+**Făcut:**
+- Interfața ClipClick (Codex) verificată: 144/144 teste, capturi 1280/375/340 px; CSS mort scos (10,5 → 6,4 KB) → PR #9.
+- Plafon 12 min pentru etapa AI, cu ordine alternată vorbire/sunet și rezervă pentru clasare → PR #10 (150 teste). Bug găsit: `AbortSignal.timeout` cu fracții făcea AI-ul să pară căzut.
+- `feature/ai-time-budget` (Codex) = dublură a lui #10, cu același bug → șters; doar mesajul de „Alege din nou” preluat.
+- `feature/partial-media-downloads` (Codex) adus la zi, +4 teste, verificat pe TED real: 293 s, audio 13 MB + segmente ~30 MB, sincron la 1 ms → PR #12.
+- Reguli de lucru în doi (`CONTRIBUTING.md`) + issue-uri #13–#16 pentru prieten + mesaj de prezentare → PR #17.
+- Povești animate: test SD-Turbo (PyTorch CPU 46–54 s/imagine; OpenVINO CPU fără câștig; **Iris Xe ~7,5 s la 512×896**), design aprobat, partea 1 implementată → PR #19: exemplu de 38 s în 189 s.
+**A picat / abandonat:**
+- Imitarea vocii unor persoane reale — refuzată (drept, politica TikTok); clonarea vocii amânată (licențe necomerciale).
+- Mișcare 3D reală în scene (ca în Short-ul de referință) — imposibil local fără GPU; Enea a acceptat decoruri fixe cu mișcare de cameră.
+- Fotografii Pexels ca sursă de decoruri — respinse ca sursă principală (internet, potrivire slabă).
+**Decizii:** decoruri generate local (A) + înlocuire manuală; povești EN principal + RO; Claude construiește proiectul.
+**Următorul pas:** merge la #19, apoi partea 2 a poveștilor, începând cu macheta editorului de scene; asignarea #13–#16 după username-ul prietenului.
+**Conversație:** sesiune Claude Code în VS Code (d:\AI_SLOP).

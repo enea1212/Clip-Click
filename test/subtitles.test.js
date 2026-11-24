@@ -102,3 +102,12 @@ test("track choice: Romanian preferred when both are equally timed", () => {
   assert.equal(pickCaptionTrack([{ name: "source.en.vtt", text: plain }, { name: "source.ro.vtt", text: plain }]), "source.ro.vtt");
   assert.equal(pickCaptionTrack([{ name: "source.en-orig.vtt", text: AUTO }, { name: "source.ro-orig.vtt", text: AUTO }]), "source.ro-orig.vtt");
 });
+
+test("groupWords with maxGroup 2 never groups more than 2 words", () => {
+  const { groupWords } = require("../subtitles");
+  const words = "one two three four five six seven".split(" ").map((word, i) => ({ word, start: i * 0.3, end: i * 0.3 + 0.25 }));
+  const groups = groupWords(words, { maxGroup: 2 });
+  assert.ok(groups.every((group) => group.length <= 2));
+  assert.equal(groups.flat().length, 7);
+  assert.ok(groupWords(words).some((group) => group.length > 2), "default still groups up to 4");
+});

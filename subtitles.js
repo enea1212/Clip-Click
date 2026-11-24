@@ -106,14 +106,14 @@ const MAX_PAUSE = 0.6;
 const LINE_CHARS = 20;
 const joinedLength = (list) => list.reduce((sum, item) => sum + item.word.length, 0) + Math.max(0, list.length - 1);
 
-function groupWords(words) {
+function groupWords(words, { maxGroup = MAX_GROUP } = {}) {
   const groups = [];
   let current = [];
   words.forEach((word, i) => {
     current.push(word);
     const next = words[i + 1];
     const tooLong = next && joinedLength([...current, next]) > 2 * LINE_CHARS;
-    if (!next || tooLong || current.length >= MAX_GROUP || /[.?!,]$/.test(word.word) || next.start - word.end > MAX_PAUSE) {
+    if (!next || tooLong || current.length >= maxGroup || /[.?!,]$/.test(word.word) || next.start - word.end > MAX_PAUSE) {
       groups.push(current);
       current = [];
     }
@@ -167,14 +167,14 @@ function styleLine(split) {
   return `Style: Default,Arial Black,90,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,3,${alignment},60,60,${marginV},1`;
 }
 
-function buildAss(words, clipStart, clipEnd, { split = false } = {}) {
+function buildAss(words, clipStart, clipEnd, { split = false, maxGroup = MAX_GROUP } = {}) {
   const length = clipEnd - clipStart;
   const inClip = words
     .filter((word) => word.end > clipStart && word.start < clipEnd)
     .map((word) => ({ word: clean(word.word), start: Math.max(0, word.start - clipStart), end: Math.min(length, word.end - clipStart) }))
     .filter((word) => word.word && word.end - word.start >= 0.01);
   const events = [];
-  for (const group of groupWords(inClip)) {
+  for (const group of groupWords(inClip, { maxGroup })) {
     const breakAt = lineBreakAfter(group);
     group.forEach((word, i) => {
       const end = i + 1 < group.length ? group[i + 1].start : word.end;

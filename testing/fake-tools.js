@@ -117,4 +117,33 @@ if (command === "ffmpeg") {
   process.exit(0);
 }
 
+// Studio scripts (animated stories): matched by the script name, whatever the Python path.
+if (/imagegen\.py$/.test(args[0] || "")) {
+  if (control.imagegenFails) fail("RuntimeError: simulated imagegen failure");
+  const jobs = JSON.parse(fs.readFileSync(args[1], "utf8"));
+  for (const item of jobs.items) {
+    fs.writeFileSync(item.out, "fake png");
+    out(`${JSON.stringify({ out: item.out, seconds: 0.1, device: "GPU" })}
+`);
+  }
+  process.exit(0);
+}
+
+if (/tts\.py$/.test(args[0] || "")) {
+  if (control.ttsFails) fail("RuntimeError: simulated tts failure");
+  const jobs = JSON.parse(fs.readFileSync(args[1], "utf8"));
+  for (const item of jobs.items) fs.writeFileSync(item.out, "fake wav");
+  fs.writeFileSync(jobs.combined, "fake wav");
+  out(JSON.stringify({ durations: jobs.items.map((item) => item.text.split(/\s+/).length * 0.4), sampleRate: 24000 }));
+  process.exit(0);
+}
+
+if (/render_story\.py$/.test(args[0] || "")) {
+  if (control.renderFails) fail("SystemExit: simulated render failure");
+  const job = JSON.parse(fs.readFileSync(args[1], "utf8"));
+  fs.writeFileSync(job.out, "fake mp4");
+  out(JSON.stringify({ frames: Math.ceil(job.scenes.at(-1).end * job.fps), seconds: 0.1 }));
+  process.exit(0);
+}
+
 fail(`fake-tools: unknown call ${command} ${args.join(" ")}`, 9);
