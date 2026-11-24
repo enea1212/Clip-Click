@@ -78,12 +78,25 @@ function buildStoryboardPrompt(sentences, language) {
   return [
     "You turn a short narrated story into a storyboard for a vertical TikTok video with simple 2D cartoon characters over illustrated backgrounds.",
     `The story is in ${language === "ro" ? "Romanian" : "English"}. Do NOT rewrite it: refer to sentences only by their [number].`,
-    "1. decors: 4 to 8 backgrounds reused across scenes. id: short lowercase slug (letters, digits, -). prompt: a short visual description IN ENGLISH of the place only (no people, no text), e.g. \"a busy city street with apartment buildings\".",
-    `2. characters: the speakers (${speakers.join(", ") || "none"}) plus at most 2 extra characters useful for the story (name in CAPITALS). hair: one of ${S.HAIR.join(", ")}. shirt: a #rrggbb color.`,
+    "1. decors: the places of the story. Make a NEW decor every time the place or the moment changes: at least 4 decors (up to 8), each used by a few scenes. id: short lowercase slug. prompt: a short visual description IN ENGLISH of the place only (no people, no text).",
+    `2. characters: the speakers (${speakers.join(", ") || "none"}) plus 1 or 2 invented characters the story talks about (e.g. DRIVER, KID, BOSS; name in CAPITALS). hair: one of ${S.HAIR.join(", ")}. shirt: a #rrggbb color.`,
     "3. scenes: in order, each covering 1 or 2 consecutive sentences (from, to = sentence numbers, inclusive), together covering every sentence exactly once.",
-    `   camera: one of ${S.CAMERAS.join(", ")}. characters on screen: [{name, expression, position}], expression one of ${S.EXPRESSIONS.join(", ")}, position one of ${S.POSITIONS.join(", ")}. A sentence said by a character must show that character.`,
-    `   overlay_type: one of ${S.OVERLAYS.join(", ")} or "" (use them for numbers, signs, money, surprises; not in every scene). overlay_text: at most 4 words (a number with unit for badge, a short sign text, one emoji for emoji, "" for money and flash).`,
+    `   camera: one of ${S.CAMERAS.join(", ")}; vary it, never the same twice in a row. characters on screen: show the people the sentence is about in MOST scenes, [{name, expression, position}], expression one of ${S.EXPRESSIONS.join(", ")} matching the mood, position one of ${S.POSITIONS.join(", ")}. A sentence said by a character must show that character.`,
+    `   overlay_type: one of ${S.OVERLAYS.join(", ")} or "" (in about a third of the scenes: badge for numbers, sign for rules or labels, money for money, flash for a camera or a shock, emoji for a feeling). overlay_text: at most 4 words ("" for money and flash).`,
     "Reply in JSON only.",
+    "",
+    "Example for a different story ([0] Tom loved fast cars. [1] Every night he raced on the highway. [2] (OFFICER) Pull over, now! [3] The fine was 500 dollars. [4] He never raced again.):",
+    JSON.stringify({
+      decors: [{ id: "garage", prompt: "a home garage with a shiny red sports car" }, { id: "highway", prompt: "a highway at night with city lights" }, { id: "roadside", prompt: "a police car parked on a dark roadside" }, { id: "kitchen", prompt: "a quiet kitchen in the morning" }],
+      characters: [{ name: "TOM", hair: "short", shirt: "#3b82f6" }, { name: "OFFICER", hair: "cap", shirt: "#1e3a8a" }],
+      scenes: [
+        { from: 0, to: 0, decor: "garage", camera: "zoom-in", characters: [{ name: "TOM", expression: "happy", position: "left" }], overlay_type: "", overlay_text: "" },
+        { from: 1, to: 1, decor: "highway", camera: "pan-right", characters: [{ name: "TOM", expression: "smug", position: "center" }], overlay_type: "badge", overlay_text: "180 KM/H" },
+        { from: 2, to: 2, decor: "roadside", camera: "zoom-in", characters: [{ name: "OFFICER", expression: "angry", position: "right" }, { name: "TOM", expression: "surprised", position: "left" }], overlay_type: "flash", overlay_text: "" },
+        { from: 3, to: 3, decor: "roadside", camera: "zoom-out", characters: [{ name: "TOM", expression: "sad", position: "center" }], overlay_type: "money", overlay_text: "" },
+        { from: 4, to: 4, decor: "kitchen", camera: "pan-left", characters: [{ name: "TOM", expression: "neutral", position: "center" }], overlay_type: "", overlay_text: "" },
+      ],
+    }),
     "",
     "Story (sentence number, speaker if any, text):",
     ...sentences.map((s) => `[${s.i}] ${s.speaker ? `(${s.speaker}) ` : ""}${s.text}`),
@@ -130,6 +143,23 @@ function sceneFrom(group, attrs, names) {
     characters: characters.slice(0, 3),
     overlay: type ? { type, text: ["money", "flash"].includes(type) ? "" : String(attrs.overlay_text || "").trim().slice(0, 30) } : null,
   };
+}
+
+// The 7b model tends to answer "static" everywhere (seen on 2026-11-24: 15/15 scenes): a static
+// camera becomes the next move of a rotation, and no two scenes in a row get the same move.
+const ROTATION = ["zoom-in", "pan-left", "zoom-out", "pan-right"];
+function varyCameras(scenes) {
+  let next = 0;
+  scenes.forEach((scene, index) => {
+    const previous = index > 0 ? scenes[index - 1].camera : null;
+    if (scene.camera !== "static" && scene.camera !== previous) return;
+    for (let tries = 0; tries < ROTATION.length; tries += 1) {
+      const candidate = ROTATION[next % ROTATION.length];
+      next += 1;
+      const following = scenes[index + 1]?.camera;
+      if (candidate !== previous && candidate !== following) { scene.camera = candidate; return; }
+    }
+  });
 }
 
 function parseStoryboard(raw, split, language) {
@@ -180,6 +210,7 @@ function parseStoryboard(raw, split, language) {
     cursor = to + 1;
   }
   fill(sentences.length);
+  varyCameras(scenes);
   const used = new Set(scenes.map((s) => s.decor));
   return { language, characters, decors: decors.filter((d) => used.has(d.id)), scenes };
 }

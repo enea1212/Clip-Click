@@ -47,3 +47,12 @@ test("checkRequest: only this app's own pages may call it", () => {
   assert.equal(ok("DELETE", { host: "localhost:4173", origin: "http://evil.com" }).status, 403);
   assert.equal(ok("DELETE", { host: "localhost:4173", origin: "http://localhost:4173" }), null);
 });
+
+test("resolveStatic serves project files from the configured data folder, and decor PNGs", () => {
+  const H = require("../http-utils");
+  const ROOT2 = path.join(__dirname, "..");
+  const id = "0b9d6a4e-1111-4222-8333-944455556666";
+  assert.equal(H.resolveStatic(ROOT2, `/data/${id}/story.mp4`, "X:/elsewhere"), path.join("X:/elsewhere", id, "story.mp4"));
+  assert.equal(H.resolveStatic(ROOT2, `/data/${id}/decor-street.png`, "X:/elsewhere"), path.join("X:/elsewhere", id, "decor-street.png"));
+  assert.equal(H.resolveStatic(ROOT2, "/story-ui.js"), path.join(ROOT2, "story-ui.js"));
+});

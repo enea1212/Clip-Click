@@ -50,7 +50,7 @@ test("parseStoryboard drops unknown expressions/cameras to defaults and adds the
     ],
   });
   const story = S.validateStory(B.parseStoryboard(raw, split, "en"));
-  assert.equal(story.scenes[0].camera, "static");
+  assert.ok(S.CAMERAS.includes(story.scenes[0].camera) && story.scenes[0].camera !== "static", story.scenes[0].camera);
   assert.deepEqual(story.scenes[0].characters, [{ name: "MAYOR", expression: "neutral", position: "center" }]);
   assert.equal(story.scenes[1].decor, "office", "unknown decor → previous scene's decor");
   assert.deepEqual(story.scenes[1].characters, [], "unknown character dropped");
@@ -76,4 +76,13 @@ test("buildStoryboardPrompt lists sentences with indices and the allowed values"
   assert.match(prompt, /\[0\] The street was fast\./);
   assert.match(prompt, /\[2\] \(MAYOR\) Pay the good drivers!/);
   for (const value of [...S.CAMERAS, ...S.EXPRESSIONS, ...S.OVERLAYS]) assert.ok(prompt.includes(value), value);
+});
+
+test("parseStoryboard turns static cameras into a varied rotation (no two equal in a row)", () => {
+  const split = B.splitScript("One. Two. Three. Four. Five.");
+  const raw = JSON.stringify({ decors: [{ id: "a", prompt: "a place" }], characters: [], scenes: [0, 1, 2, 3, 4].map((i) => ({ from: i, to: i, decor: "a", camera: i === 2 ? "pan-left" : "static" })) });
+  const cams = B.parseStoryboard(raw, split, "en").scenes.map((s) => s.camera);
+  assert.ok(!cams.includes("static"), cams.join(","));
+  for (let i = 1; i < cams.length; i += 1) assert.notEqual(cams[i], cams[i - 1], cams.join(","));
+  assert.equal(cams[2], "pan-left", "a chosen move is kept");
 });

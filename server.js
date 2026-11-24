@@ -778,7 +778,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   try {
-    serveFile(req, res, resolveStatic(ROOT, pathname));
+    serveFile(req, res, resolveStatic(ROOT, pathname, DATA_DIR));
   } catch (error) {
     console.error(`[GET ${pathname}] ${error.message}`);
     if (!res.headersSent) res.writeHead(500);
