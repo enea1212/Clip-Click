@@ -82,3 +82,21 @@
 **Decizii:** decoruri generate local (A) + înlocuire manuală; povești EN principal + RO; Claude construiește proiectul.
 **Următorul pas:** merge la #19, apoi partea 2 a poveștilor, începând cu macheta editorului de scene; asignarea #13–#16 după username-ul prietenului.
 **Conversație:** sesiune Claude Code în VS Code (d:\AI_SLOP).
+
+## 2026-11-24 — Povești animate în aplicație, decoruri SDXL, editor mai bun
+**Obiectiv:** povești scurte pentru TikTok direct din ClipClick: Enea scrie textul, aplicația face scenele, decorurile, vocea și videoul.
+**Făcut:**
+- Decoruri pixelate (observat de Enea) → Real-ESRGAN pe procesor (~9 s/decor); pe Iris Xe dădea imagini greșite → PR #19 integrat cu mărirea.
+- Partea 2 (PR #20): scene cu AI (`storyboard.js`), editor storyboard 2B ales de Enea din machetă, worker de imagini ținut pornit, API `/api/stories`, integrare în „Proiectele mele”. Real: creare 235–253 s, regenerare decor 22 s (45 s prima dată), previzualizare 60 s, video 45 s.
+- qwen2.5:7b dădea 1 decor și cameră fixă pe 15 scene → prompt cu exemplu complet: 4 decoruri, camere variate.
+- Decoruri „mai frumoase” (Enea): test pe 4 decoruri × (acum / SD-Turbo cu stil nou / DreamShaper LCM / SDXL-Turbo) → Enea a ales SDXL-Turbo (PR #22). VAE în f16 → imagini negre; doar VAE în f32 → ~16 s/imagine (36 s cu totul în f32).
+- Test „The Piano Stairs” prin aplicație → PR #24: decor nou/alt decor din editor, personaje distincte, AI cu mai multe decoruri și personaje (3→5 decoruri, 4/14→14/14 scene cu personaje).
+- PR #25 (deschis): grafice potrivite cu textul, Real-ESRGAN pentru imaginile încărcate.
+- Curățenie: modelul vechi SD-Turbo și testele (~15 GB) șterse; `kernel.errors.txt` (compilatorul Intel) ignorat.
+**A picat / abandonat:**
+- DreamShaper LCM — imagini moi, dar ratează subiectul (fără radar galben).
+- Real-ESRGAN pe Iris Xe prin OpenVINO — rezultat greșit și în fp32; rămâne pe procesor.
+- SDXL-Turbo cu totul în f32 — corect, dar de 2× mai lent decât varianta cu doar VAE în f32.
+**Decizii:** editor 2B (storyboard); decoruri SDXL-Turbo; Claude construiește poveștile.
+**Următorul pas:** merge la PR #25, apoi o poveste scrisă de Enea în aplicație; decizia despre înregistrarea la Stability AI.
+**Conversație:** sesiune Claude Code în VS Code (d:\AI_SLOP).
