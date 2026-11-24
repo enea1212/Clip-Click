@@ -1,8 +1,8 @@
-"""Story decors: SD-Turbo (OpenVINO) text-to-image, Intel GPU first, CPU as fallback.
+"""Story decors: SDXL-Turbo (or SD-Turbo) through OpenVINO, Intel GPU first, CPU as fallback.
 
 Usage: imagegen.py <jobs.json>   (`out` paths absolute or relative to the current folder)
        imagegen.py --serve         (one JSON job per stdin line; answers {"ok", "items"|"error"} per line)
-jobs = { model_dir, width, height, steps, device_order: ["GPU", "CPU"], items: [{ prompt, out, seed }] }
+jobs = { model_dir, pipeline: "sdxl"|"sd", vae_f32, width, height, steps, device_order: ["GPU", "CPU"], upscale?, items: [{ prompt, out, seed }] }
 Loads the model once, writes each PNG and prints one JSON line per image: {"out", "seconds", "device"}.
 """
 import json
@@ -14,28 +14,38 @@ def log(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def load(model_dir, device, width, height):
-    from optimum.intel import OVStableDiffusionPipeline
-    pipe = OVStableDiffusionPipeline.from_pretrained(model_dir, device=device, compile=False)
-    # SD-Turbo runs without classifier-free guidance (guidance_scale 0): one latent per step. The
-    # default reshape assumes guidance and doubles the UNet batch, which then fails at inference.
-    # So: reshape everything, then reload the UNet from disk and give it batch 1 ourselves (a graph
-    # already made static with batch 2 can't be reshaped again).
+def load(model_dir, device, width, height, pipeline="sd", vae_f32=False):
+    """The OpenVINO pipeline, compiled for one image size (static shapes: no slow first image).
+
+    Turbo models run without classifier-free guidance (guidance_scale 0): one latent per step. The
+    library's reshape assumes guidance and doubles the UNet batch, which then fails at inference;
+    so everything is reshaped, then the UNet is read again from disk and given batch 1 (a graph
+    already made static with batch 2 can't be reshaped again).
+    SDXL-Turbo: its VAE decoder overflows in f16 on the Iris Xe (black images), so it alone runs
+    in f32; the UNet stays in f16 (~16 s per image instead of ~36 s with everything in f32).
+    """
     import os
     import openvino
+    from optimum.intel import OVStableDiffusionPipeline, OVStableDiffusionXLPipeline
+    cls = OVStableDiffusionXLPipeline if pipeline == "sdxl" else OVStableDiffusionPipeline
+    pipe = cls.from_pretrained(model_dir, device=device, compile=False)
     pipe.reshape(batch_size=1, height=height, width=width, num_images_per_prompt=1)
     unet = openvino.Core().read_model(os.path.join(model_dir, "unet", "openvino_model.xml"))
     shapes = {}
     for model_input in unet.inputs:
         name, shape = model_input.get_any_name(), model_input.get_partial_shape()
+        dims = [shape[i].get_length() if shape[i].is_static else -1 for i in range(shape.rank.get_length())]
         if name == "sample":
-            shapes[name] = [1, shape[1].get_length() if shape[1].is_static else 4, height // 8, width // 8]
-        elif name == "encoder_hidden_states":
-            shapes[name] = [1, 77, shape[2].get_length()]
-        elif name == "timestep" and shape.rank.get_length() == 1:
-            shapes[name] = [1]
+            dims = [1, dims[1] if dims[1] > 0 else 4, height // 8, width // 8]
+        elif dims:
+            dims[0] = 1
+            if name == "encoder_hidden_states":
+                dims[1] = 77
+        shapes[name] = dims
     unet.reshape(shapes)
     pipe.unet.model = unet
+    if vae_f32:
+        pipe.vae_decoder.ov_config = {**(pipe.vae_decoder.ov_config or {}), "INFERENCE_PRECISION_HINT": "f32"}
     pipe.compile()
     pipe.set_progress_bar_config(disable=True)
     return pipe
@@ -50,7 +60,7 @@ class Generator:
         started = time.time()
         for candidate in jobs.get("device_order", ["GPU", "CPU"]):
             try:
-                self.pipe, self.device = load(jobs["model_dir"], candidate, self.width, self.height), candidate
+                self.pipe, self.device = load(jobs["model_dir"], candidate, self.width, self.height, jobs.get("pipeline", "sd"), jobs.get("vae_f32", False)), candidate
                 break
             except Exception as error:  # GPU missing or driver too old: try the next device
                 errors.append(f"{candidate}: {error}")

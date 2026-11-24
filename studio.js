@@ -99,7 +99,9 @@ function validateStory(raw) {
 }
 
 // --- decors (studio/imagegen.py: SD-Turbo through OpenVINO, Intel GPU first) ---------------
-const DECOR_STYLE = "stylized 3D render, bright daylight, clean cartoonish realism, cinematic lighting, no people, no text";
+// Chosen by Enea on 2026-11-24 from a side-by-side test (SD-Turbo / DreamShaper LCM / SDXL-Turbo).
+const DECOR_MODEL = { dir: "sdxl-turbo-ov", pipeline: "sdxl", vae_f32: true };
+const DECOR_STYLE = "Pixar style 3D animated movie background, soft global illumination, vibrant warm colors, highly detailed, clean shapes, cinematic composition, no people, no text";
 const DECOR_SIZE = { width: 576, height: 1024 };
 const DECOR_STEPS = 2;
 // Real-ESRGAN (studio/upscale.py): decors are stored at 1260x2240, enough for 1080x1920 + camera zoom.
@@ -137,7 +139,7 @@ async function generateDecors(folder, story, { log = () => {}, runner = null, fo
   if (!missing.length) return { generated: [] };
   for (const id of force) record.seeds[id] = (record.seeds[id] || 0) + 1;
   const jobs = {
-    model_dir: path.join(MODELS_DIR, "sd-turbo-ov"),
+    model_dir: path.join(MODELS_DIR, DECOR_MODEL.dir), pipeline: DECOR_MODEL.pipeline, vae_f32: DECOR_MODEL.vae_f32,
     ...DECOR_SIZE, steps: DECOR_STEPS, device_order: ["GPU", "CPU"],
     upscale: { model: path.join(MODELS_DIR, "realesrgan", "realesr-general-x4v3.pth"), ...DECOR_UPSCALE },
     items: missing.map((decor) => ({
