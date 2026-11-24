@@ -166,4 +166,9 @@ if (/render_story\.py$/.test(args[0] || "")) {
   process.exit(0);
 }
 
+if (/upscale\.py$/.test(args[0] || "")) {
+  out("skip (fake)\n");
+  process.exit(0);
+}
+
 fail(`fake-tools: unknown call ${command} ${args.join(" ")}`, 9);

@@ -9,6 +9,7 @@ const B = require("./storyboard");
 const AI = require("./ai");
 const P = require("./projects");
 const { buildStory } = require("./story");
+const { run } = require("./proc");
 
 const STORYBOARD_BUDGET_MS = Number(process.env.CLIPTREI_STORYBOARD_BUDGET_MS) || 360_000;
 const MIN_SCRIPT = 20;
@@ -210,6 +211,13 @@ function createStories({ dataDir, locks, withLock, UserError, worker, busyMessag
       const file = path.join(folderOf(id), S.decorFile(decor));
       fs.writeFileSync(`${file}.tmp`, bytes);
       fs.renameSync(`${file}.tmp`, file);
+      // A small picture would look blurry next to the generated decors: Real-ESRGAN enlarges it
+      // (studio/upscale.py skips images already big enough). If that fails, the original stays.
+      try {
+        await run(S.studioPython(), [S.script("upscale.py"), path.join(S.MODELS_DIR, "realesrgan", "realesr-general-x4v3.pth"), file, file], { cwd: folderOf(id) });
+      } catch (error) {
+        console.warn(`[decor] mărirea imaginii încărcate: ${error.message}`);
+      }
       const record = S.readDecorRecord(folderOf(id));
       delete record.prompts[decor];
       S.writeDecorRecord(folderOf(id), record);

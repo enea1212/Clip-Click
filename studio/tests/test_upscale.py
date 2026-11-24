@@ -28,5 +28,16 @@ class UpscaleTest(unittest.TestCase):
         self.assertEqual(upscale.target_size(576, 1024), (1260, 2240))
 
 
+
+class CoverScaleTest(unittest.TestCase):
+    def test_small_images_are_enlarged_to_cover_the_frame(self):
+        self.assertAlmostEqual(upscale.cover_scale(630, 1120), 2.0)
+        self.assertAlmostEqual(upscale.cover_scale(1000, 1000), 2.24)
+
+    def test_big_enough_images_are_left_alone(self):
+        self.assertIsNone(upscale.cover_scale(1260, 2240))
+        self.assertIsNone(upscale.cover_scale(1220, 2200))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -213,3 +213,12 @@ test("a scene can switch to another existing decor; an unknown decor is refused"
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /decorul/);
 });
+
+test("an uploaded image goes through the Real-ESRGAN upscaler", async () => {
+  const made = (await create()).body;
+  setControl({});
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)]);
+  const ok = await post(`/api/stories/${made.id}/upload`, { decor: "scene", data: `data:image/png;base64,${png.toString("base64")}` });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.ok(calls().some((line) => /upscale\.py .*realesr-general-x4v3\.pth .*decor-scene\.png/.test(line)), calls().join("\n"));
+});
