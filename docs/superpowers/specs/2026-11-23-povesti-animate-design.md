@@ -200,3 +200,8 @@ E un proiect mare (de ordinul a 4–6 PR-uri). Ordinea propusă, fiecare cu issu
 6. integrarea cu „Proiectele mele” și „Reia”.
 
 Se poate verifica pe un video real după pasul 3, cu o listă de scene scrisă de mână.
+
+## Actualizare 2026-11-24 (după partea 1)
+- **Editorul de scene ales de Enea: varianta 2B, „storyboard”** (macheta: grilă de cadre verticale 9:16 cu textul scenei, plus un panou lateral pentru scena selectată: decor cu prompt, Regenerează, Încarcă imagine, Previzualizează; cameră; grafic; personaje cu expresie și poziție; player dedesubt). Varianta 2A (listă de rânduri) respinsă.
+- Decorurile sunt mărite cu Real-ESRGAN (`studio/upscale.py`), pe procesor: ~21 s pe decor în total.
+- Subtitrările poveștii se mută deasupra capetelor personajelor (sus, la ~30% din înălțime), iar panoul (`sign`) urcă la ~25%, ca să nu se suprapună.
