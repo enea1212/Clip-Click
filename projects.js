@@ -54,6 +54,7 @@ function createLocks() {
   return {
     acquire(key) { if (held.has(key)) return false; held.add(key); return true; },
     release(key) { held.delete(key); },
+    isHeld(key) { return held.has(key); },
     isProjectBusy(id) { return [...held].some((key) => key.startsWith(`${id}:`)); },
     acquireHeavy() { if (heavy) return false; heavy = true; return true; },
     releaseHeavy() { heavy = false; },
@@ -70,7 +71,7 @@ function listProjects(dataDir) {
       if (!isValidId(id) || !fs.statSync(folder).isDirectory()) continue;
       const project = readProject(dataDir, id);
       if (project) {
-        items.push({ id, title: project.title, createdAt: project.createdAt, clipCount: project.clips.length, legacy: false, status: project.status, error: project.error, aiProgress: project.aiProgress });
+        items.push({ id, title: project.title, createdAt: project.createdAt, clipCount: project.clips.length, legacy: false, status: project.status, error: project.error, aiProgress: project.aiProgress, type: project.type || "clips", ...(project.type === "story" ? { sceneCount: project.sceneCount || 0 } : {}) });
         continue;
       }
       // Older or unfinished folders can't be edited (no saved start times), but must stay visible

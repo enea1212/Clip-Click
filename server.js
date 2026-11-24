@@ -14,6 +14,8 @@ const { resolveStatic, decodePath, parseRange, checkRequest } = require("./http-
 const W = require("./whisper");
 const { speechSegments, remapWords, totalDuration, snapSegments } = require("./pauses");
 const { resumePlan, missingChunks, normalizeStatus, keepForResume, leftoverFiles } = require("./pipeline");
+const { createImageWorker } = require("./image-worker");
+const { createStories } = require("./stories");
 
 // Errors that will happen again on every „Reia” (the video itself is the problem).
 const permanent = (error) => Object.assign(error, { permanent: true });
@@ -23,7 +25,7 @@ const ROOT = __dirname;
 const DATA_DIR = process.env.CLIPTREI_DATA_DIR || path.join(ROOT, "data");
 const SATISFYING_DIR = process.env.CLIPTREI_SATISFYING_DIR || path.join(ROOT, "satisfying");
 const PORT = Number(process.env.PORT || 4173);
-const MIME = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mp4": "video/mp4", ".json": "application/json; charset=utf-8" };
+const MIME = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mp4": "video/mp4", ".png": "image/png", ".json": "application/json; charset=utf-8" };
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 class UserError extends Error {
@@ -78,6 +80,10 @@ async function withLock(key, busyMessage, job) {
   if (!locks.acquire(key)) throw new UserError(busyMessage, 409);
   try { return await job(); } finally { locks.release(key); }
 }
+
+// Animated stories (stories.js); one image process kept loaded for quick decor regeneration.
+const imageWorker = createImageWorker();
+const stories = createStories({ dataDir: DATA_DIR, locks, withLock, UserError, worker: imageWorker, busyMessage: BUSY_MESSAGE });
 
 // Is faster-whisper importable? Checked before any download so a missing package
 // never costs a multi-GB download first.
@@ -687,14 +693,14 @@ function serveFile(req, res, filePath) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-function readJson(req) {
+function readJson(req, limit = 10_000) {
   return new Promise((resolve, reject) => {
     let body = "";
     let tooLarge = false;
     req.on("data", (chunk) => {
       if (tooLarge) return; // keep draining so the 413 answer can still be sent
       body += chunk;
-      if (body.length > 10_000) { tooLarge = true; body = ""; reject(new UserError("Cerere prea mare.", 413)); }
+      if (body.length > limit) { tooLarge = true; body = ""; reject(new UserError("Cerere prea mare.", 413)); }
     });
     req.on("end", () => {
       if (tooLarge) return; try { resolve(JSON.parse(body || "{}")); } catch { reject(new UserError("Cerere invalidă.")); } });
@@ -708,10 +714,15 @@ function sendJson(res, status, data) {
 }
 
 async function handleApi(req, res, pathname) {
+  if (pathname.startsWith("/api/stories")) {
+    const result = await stories.handle(req, pathname, readJson);
+    if (result !== undefined) return result;
+  }
   const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
   const resumeMatch = pathname.match(/^\/api\/projects\/([^/]+)\/resume$/);
   if (req.method === "POST" && resumeMatch) {
     if (!P.isValidId(resumeMatch[1])) throw new UserError("Proiect invalid.");
+    if (P.readProject(DATA_DIR, resumeMatch[1])?.type === "story") return stories.resume(resumeMatch[1]);
     return resumeProject(resumeMatch[1]);
   }
   const rechooseMatch = pathname.match(/^\/api\/projects\/([^/]+)\/rechoose$/);
@@ -728,7 +739,10 @@ async function handleApi(req, res, pathname) {
     return P.listProjects(DATA_DIR).map((item) => (item.legacy ? item : normalizeStatus(item, locks.isProjectBusy(item.id))));
   }
   if (projectMatch && !P.isValidId(projectMatch[1])) throw new UserError("Proiect invalid.");
-  if (req.method === "GET" && projectMatch) return normalizeStatus(loadProject(projectMatch[1]), locks.isProjectBusy(projectMatch[1]));
+  if (req.method === "GET" && projectMatch) {
+    const project = normalizeStatus(loadProject(projectMatch[1]), locks.isProjectBusy(projectMatch[1]));
+    return project.type === "story" ? stories.view(project) : project;
+  }
   if (req.method === "DELETE" && projectMatch) {
     if (locks.isProjectBusy(projectMatch[1])) throw new UserError("Proiectul se procesează sau se randează acum. Încearcă după ce termină.", 409);
     try {

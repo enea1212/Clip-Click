@@ -57,7 +57,7 @@ def _sign(image, text, local_t):
     lines.append(line)
     line_h = size * 1.2
     block_w = max(draw.textlength(item, font=f) for item in lines)
-    cx, cy = width / 2, height * 0.36
+    cx, cy = width / 2, height * 0.25
     pad = size * 0.5
     rect = [cx - block_w / 2 - pad, cy - len(lines) * line_h / 2 - pad, cx + block_w / 2 + pad, cy + len(lines) * line_h / 2 + pad]
     draw.rounded_rectangle(rect, radius=size * 0.2, fill=(250, 250, 245), outline=(30, 30, 30), width=max(3, size // 10))

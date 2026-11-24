@@ -124,8 +124,10 @@ if (/imagegen\.py$/.test(args[0] || "") && args[1] === "--serve") {
   const lines = require("node:readline").createInterface({ input: process.stdin });
   lines.on("line", (line) => {
     if (!line.trim()) return;
-    if (control.imagegenServeDies && fs.existsSync(control.imagegenServeDies)) {
-      fs.rmSync(control.imagegenServeDies);
+    // The process lives across requests: re-read the control file for every job.
+    const live = controlFile && fs.existsSync(controlFile) ? JSON.parse(fs.readFileSync(controlFile, "utf8")) : {};
+    if (live.imagegenServeDies && fs.existsSync(live.imagegenServeDies)) {
+      fs.rmSync(live.imagegenServeDies);
       process.stderr.write("RuntimeError: simulated imagegen crash\n");
       process.exit(1);
     }

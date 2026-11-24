@@ -234,11 +234,11 @@ async function ollamaStatus(url = OLLAMA_URL, model = MODEL) {
 }
 
 // One model answer: the raw JSON text (parseAnswer / parseRanking validate it).
-async function askOllama(prompt, { url = OLLAMA_URL, model = MODEL, timeoutMs = ANSWER_TIMEOUT_MS, schema = ANSWER_SCHEMA } = {}) {
+async function askOllama(prompt, { url = OLLAMA_URL, model = MODEL, timeoutMs = ANSWER_TIMEOUT_MS, schema = ANSWER_SCHEMA, options = {} } = {}) {
   const result = await fetchJson(`${url}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, prompt, stream: false, format: schema, keep_alive: "10m", options: { temperature: 0.2 } }),
+    body: JSON.stringify({ model, prompt, stream: false, format: schema, keep_alive: "10m", options: { temperature: 0.2, ...options } }),
   }, timeoutMs);
   return result.response;
 }

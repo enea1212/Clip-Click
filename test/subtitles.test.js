@@ -111,3 +111,10 @@ test("groupWords with maxGroup 2 never groups more than 2 words", () => {
   assert.equal(groups.flat().length, 7);
   assert.ok(groupWords(words).some((group) => group.length > 2), "default still groups up to 4");
 });
+
+test("buildAss with top puts captions at the top", () => {
+  const { buildAss } = require("../subtitles");
+  const words = [{ word: "hello", start: 0, end: 0.5 }];
+  assert.match(buildAss(words, 0, 1, { top: 560 }), /,8,60,60,560,/);
+  assert.match(buildAss(words, 0, 1), /,2,60,60,480,/, "default unchanged");
+});

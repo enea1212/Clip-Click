@@ -2,8 +2,9 @@ const path = require("node:path");
 
 // Only the app's own front-end files and the project videos are served; project data,
 // source code, docs and the satisfying folder stay private.
-const APP_FILES = new Set(["index.html", "app.js", "layout.js", "styles.css", "ui.css"]);
-const DATA_VIDEO = /^\/data\/([0-9a-f-]{36})\/([A-Za-z0-9_-]+\.mp4)$/;
+const APP_FILES = new Set(["index.html", "app.js", "layout.js", "story-ui.js", "styles.css", "ui.css"]);
+// Project videos, and the decor images of story projects (thumbnails in the storyboard).
+const DATA_VIDEO = /^\/data\/([0-9a-f-]{36})\/([A-Za-z0-9_-]+\.(?:mp4|png))$/;
 
 function resolveStatic(root, pathname) {
   const name = pathname === "/" ? "index.html" : pathname.slice(1);
