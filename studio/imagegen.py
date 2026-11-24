@@ -1,6 +1,7 @@
 """Story decors: SD-Turbo (OpenVINO) text-to-image, Intel GPU first, CPU as fallback.
 
-Usage: imagegen.py <jobs.json>   (run from the project folder; `out` paths are relative to it)
+Usage: imagegen.py <jobs.json>   (`out` paths absolute or relative to the current folder)
+       imagegen.py --serve         (one JSON job per stdin line; answers {"ok", "items"|"error"} per line)
 jobs = { model_dir, width, height, steps, device_order: ["GPU", "CPU"], items: [{ prompt, out, seed }] }
 Loads the model once, writes each PNG and prints one JSON line per image: {"out", "seconds", "device"}.
 """
@@ -40,37 +41,72 @@ def load(model_dir, device, width, height):
     return pipe
 
 
+class Generator:
+    """The loaded model (+ upscaler) for one image size; generates the items of a job."""
+
+    def __init__(self, jobs):
+        self.width, self.height, self.steps = jobs["width"], jobs["height"], jobs.get("steps", 2)
+        self.pipe, self.device, errors = None, None, []
+        started = time.time()
+        for candidate in jobs.get("device_order", ["GPU", "CPU"]):
+            try:
+                self.pipe, self.device = load(jobs["model_dir"], candidate, self.width, self.height), candidate
+                break
+            except Exception as error:  # GPU missing or driver too old: try the next device
+                errors.append(f"{candidate}: {error}")
+        if self.pipe is None:
+            raise RuntimeError("Nu am putut încărca modelul de imagini: " + " | ".join(errors))
+        log(f"device={self.device}" + ("" if self.device == "GPU" else " (placa video indisponibilă)") + f" load={time.time() - started:.1f}s")
+        self.upscaler, self.upscale_size = None, None
+        if jobs.get("upscale"):
+            import upscale
+            self.upscale = upscale
+            self.upscaler = upscale.load(jobs["upscale"]["model"])
+            self.upscale_size = (jobs["upscale"]["width"], jobs["upscale"]["height"])
+
+    def generate(self, items):
+        import torch
+        done = []
+        for item in items:
+            t = time.time()
+            image = self.pipe(prompt=item["prompt"], num_inference_steps=self.steps, guidance_scale=0.0, width=self.width, height=self.height,
+                              generator=torch.Generator().manual_seed(int(item.get("seed", 0)))).images[0]
+            if self.upscaler is not None:
+                image = self.upscale.upscale_image(image, self.upscaler, self.upscale_size)
+            image.save(item["out"])
+            done.append({"out": item["out"], "seconds": round(time.time() - t, 2), "device": self.device})
+        return done
+
+
+def serve():
+    """One JSON job per stdin line, one JSON answer per stdout line; the model stays loaded."""
+    generator = None
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            jobs = json.loads(line)
+            if generator is None or (generator.width, generator.height) != (jobs["width"], jobs["height"]):
+                generator = Generator(jobs)
+            answer = {"ok": True, "items": generator.generate(jobs["items"])}
+        except Exception as error:
+            answer = {"ok": False, "error": str(error)}
+        print(json.dumps(answer), flush=True)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
+    if sys.argv[1] == "--serve":
+        sys.stdin.reconfigure(encoding="utf-8")
+        return serve()
     with open(sys.argv[1], encoding="utf-8") as handle:
         jobs = json.load(handle)
-    width, height, steps = jobs["width"], jobs["height"], jobs.get("steps", 2)
-    pipe, device, errors = None, None, []
-    started = time.time()
-    for candidate in jobs.get("device_order", ["GPU", "CPU"]):
-        try:
-            pipe, device = load(jobs["model_dir"], candidate, width, height), candidate
-            break
-        except Exception as error:  # GPU missing or driver too old: try the next device
-            errors.append(f"{candidate}: {error}")
-    if pipe is None:
-        raise SystemExit("Nu am putut încărca modelul de imagini: " + " | ".join(errors))
-    log(f"device={device}" + ("" if device == "GPU" else " (placa video indisponibilă)") + f" load={time.time() - started:.1f}s")
-
-    import torch
-    upscaler, upscale_size = None, None
-    if jobs.get("upscale"):
-        import upscale
-        upscaler = upscale.load(jobs["upscale"]["model"])
-        upscale_size = (jobs["upscale"]["width"], jobs["upscale"]["height"])
+    try:
+        generator = Generator(jobs)
+    except RuntimeError as error:
+        raise SystemExit(str(error))
     for item in jobs["items"]:
-        t = time.time()
-        image = pipe(prompt=item["prompt"], num_inference_steps=steps, guidance_scale=0.0, width=width, height=height,
-                     generator=torch.Generator().manual_seed(int(item.get("seed", 0)))).images[0]
-        if upscaler is not None:
-            image = upscale.upscale_image(image, upscaler, upscale_size)
-        image.save(item["out"])
-        print(json.dumps({"out": item["out"], "seconds": round(time.time() - t, 2), "device": device}), flush=True)
+        print(json.dumps(generator.generate([item])[0]), flush=True)
 
 
 if __name__ == "__main__":
