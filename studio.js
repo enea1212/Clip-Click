@@ -69,6 +69,22 @@ function validateStory(raw) {
       voice: character.voice ?? voices[index % voices.length],
     };
   });
+  // Characters must be told apart at a glance (seen on 2026-11-24: ENGINEER and MAN, both short
+  // hair, blue and navy shirts, looked like one person). Each later character gets a hair style
+  // not used yet (while there are free ones) and a shirt clearly different in color from all
+  // earlier ones; looks that are already distinct are kept.
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const close = (a, b) => Math.hypot(...rgb(a).map((v, i) => v - rgb(b)[i])) <= 150;
+  characters.forEach((character, index) => {
+    const earlier = characters.slice(0, index);
+    const others = characters.filter((_, j) => j !== index);
+    if (earlier.some((other) => other.look.hair === character.look.hair)) {
+      character.look.hair = HAIR.find((hair) => !others.some((other) => other.look.hair === hair)) || character.look.hair;
+    }
+    if (earlier.some((other) => close(other.look.shirt, character.look.shirt))) {
+      character.look.shirt = SHIRTS.find((color) => !others.some((other) => close(other.look.shirt, color))) || character.look.shirt;
+    }
+  });
   const names = new Set(characters.map((character) => character.name));
   if (names.size !== characters.length) fail("Două personaje au același nume.");
   const knownCharacter = (name) => { if (!names.has(name)) fail(`Scena folosește personajul „${name}”, care nu e în lista de personaje.`); return name; };

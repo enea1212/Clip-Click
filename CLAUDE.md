@@ -83,7 +83,9 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 
 **Povești animate în aplicație (issue #18):** partea 1 (motorul, PR #19) în `main`; **partea 2 pe branch-ul `feature/povesti-editor` (PR deschis)**: meniul „Poveste nouă” → AI-ul face scenele → editorul storyboard (2B: grilă de cadre + panou: decor cu Regenerează/Încarcă imagine, cameră, grafic, personaje) → Previzualizare → Creează video → Descarcă. Poveștile apar în „Proiectele mele” și se reiau cu „Reia”. Verificat pe un server de test cu modele reale (cifrele mai sus). 198 de teste Node + 13 Python.
 
-Rămas de îmbunătățit la povești: AI-ul pune puține personaje/grafice; schimbarea decorului unei scene cu alt decor existent nu e încă în editor; seed-ul la „Regenerează” crește, dar o imagine încărcată de mână nu se mărește cu Real-ESRGAN.
+Editor (2026-11-24, #23): „＋ Decor nou doar aici” (decor nou doar pentru scena aleasă) și „Folosește alt decor”. Personajele sunt făcute distincte automat (păr și culoare de cămașă), scenele fără personaje primesc personajul principal, iar AI-ul cere ~1 decor la 2–3 propoziții, fără oameni în descrieri. Test „The Piano Stairs”: înainte 3 decoruri și 4/14 scene cu personaje, după 5 decoruri (inclusiv scările-pian) și 14/14.
+
+Rămas de îmbunătățit la povești: graficele alese de AI nu se potrivesc mereu (bani la „66%”); o imagine încărcată de mână nu se mărește cu Real-ESRGAN.
 
 Primul test real pe stream (GTA 6 h, proiect `data/eafb540b…`, video legat prin hardlink din `data/29520ba6…`, deci fără 6,7 GB în plus): **locurile 1 și 2 alese de AI vin din vârfurile de sunet** (5:35:59 „Never Getting the Good Ending”, 5:54:03 „It Worked! Then Faked It”), locul 3 din vorbire. Enea încă n-a verificat dacă momentele sunt bune.
 

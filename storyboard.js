@@ -73,12 +73,42 @@ const STORYBOARD_SCHEMA = {
   required: ["decors", "scenes"],
 };
 
+const minDecors = (sentences) => Math.min(8, Math.max(3, Math.ceil(sentences / 3)));
+
+// Decors must not contain people (the characters are drawn on top); the 7b model still writes
+// "…, a small team working" or "with people walking". Clauses about people are dropped.
+const PEOPLE = /\b(people|persons?|man|men|woman|women|team|crowd|kids?|child|children|boys?|girls?|commuters?|workers?|drivers?|mayor|officers?|engineers?|someone|guys?|family|students?|passengers?|pedestrians?|tourists?)\b/i;
+function cleanDecorPrompt(prompt) {
+  const parts = String(prompt).split(/(,\s*|\s+with\s+|\s+and\s+|\s+where\s+|\s+while\s+)/i);
+  let out = "";
+  for (let i = 0; i < parts.length; i += 2) {
+    if (PEOPLE.test(parts[i])) continue;
+    out += (out && i > 0 ? parts[i - 1] : "") + parts[i];
+  }
+  return out.trim() || String(prompt).trim();
+}
+
+// The reference style has a character in almost every scene; the 7b model leaves most empty.
+// Empty scenes get the story's main character (most present), with his last expression/position.
+function fillCharacters(scenes, names) {
+  if (!names.size) return;
+  const count = new Map();
+  for (const scene of scenes) for (const c of scene.characters) count.set(c.name, (count.get(c.name) || 0) + 1);
+  const main = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || [...names][0];
+  let last = { expression: "neutral", position: "center" };
+  for (const scene of scenes) {
+    const present = scene.characters.find((c) => c.name === main);
+    if (present) last = present;
+    else if (!scene.characters.length) scene.characters.push({ name: main, expression: last.expression, position: last.position });
+  }
+}
+
 function buildStoryboardPrompt(sentences, language) {
   const speakers = [...new Set(sentences.map((s) => s.speaker).filter(Boolean))];
   return [
     "You turn a short narrated story into a storyboard for a vertical TikTok video with simple 2D cartoon characters over illustrated backgrounds.",
     `The story is in ${language === "ro" ? "Romanian" : "English"}. Do NOT rewrite it: refer to sentences only by their [number].`,
-    "1. decors: the places of the story. Make a NEW decor every time the place or the moment changes: at least 4 decors (up to 8), each used by a few scenes. id: short lowercase slug. prompt: a short visual description IN ENGLISH of the place only (no people, no text).",
+    `1. decors: the places of the story. Make a NEW decor every time the place or the moment changes, and for the key image of the story: at least ${minDecors(sentences.length)} decors (about one for every 2-3 sentences, up to 8). id: short lowercase slug. prompt: a short visual description IN ENGLISH of the place or object only: NO people, no text.`,
     `2. characters: the speakers (${speakers.join(", ") || "none"}) plus 1 or 2 invented characters the story talks about (e.g. DRIVER, KID, BOSS; name in CAPITALS). hair: one of ${S.HAIR.join(", ")}. shirt: a #rrggbb color.`,
     "3. scenes: in order, each covering 1 or 2 consecutive sentences (from, to = sentence numbers, inclusive), together covering every sentence exactly once.",
     `   camera: one of ${S.CAMERAS.join(", ")}; vary it, never the same twice in a row. characters on screen: show the people the sentence is about in MOST scenes, [{name, expression, position}], expression one of ${S.EXPRESSIONS.join(", ")} matching the mood, position one of ${S.POSITIONS.join(", ")}. A sentence said by a character must show that character.`,
@@ -169,7 +199,7 @@ function parseStoryboard(raw, split, language) {
   const decors = [];
   for (const decor of answer.decors) {
     const id = slug(decor && decor.id);
-    const prompt = String((decor && decor.prompt) || "").trim();
+    const prompt = cleanDecorPrompt(String((decor && decor.prompt) || "").trim());
     if (id && prompt && !decors.some((d) => d.id === id) && decors.length < MAX_DECORS) decors.push({ id, prompt });
   }
   if (!decors.length) return null;
@@ -210,6 +240,7 @@ function parseStoryboard(raw, split, language) {
     cursor = to + 1;
   }
   fill(sentences.length);
+  fillCharacters(scenes, names);
   varyCameras(scenes);
   const used = new Set(scenes.map((s) => s.decor));
   return { language, characters, decors: decors.filter((d) => used.has(d.id)), scenes };
@@ -226,4 +257,4 @@ function rulesStoryboard(split, language) {
   };
 }
 
-module.exports = { splitScript, buildStoryboardPrompt, parseStoryboard, rulesStoryboard, STORYBOARD_SCHEMA };
+module.exports = { splitScript, buildStoryboardPrompt, parseStoryboard, rulesStoryboard, cleanDecorPrompt, STORYBOARD_SCHEMA };

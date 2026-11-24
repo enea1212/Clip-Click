@@ -132,7 +132,7 @@ function createStories({ dataDir, locks, withLock, UserError, worker, busyMessag
     if (!["editing", "ready"].includes(project.status)) throw new UserError("Povestea nu e gata de editat.");
   }
 
-  async function editScene(id, { index, camera, overlay, characters } = {}) {
+  async function editScene(id, { index, camera, overlay, characters, decor } = {}) {
     const project = load(id);
     editable(project);
     if (locks.isHeld(`${id}:process`)) throw new UserError("Povestea se randează acum. Încearcă după ce termină.", 409);
@@ -140,6 +140,7 @@ function createStories({ dataDir, locks, withLock, UserError, worker, busyMessag
     if (!Number.isInteger(index) || !story.scenes[index]) throw new UserError("Scenă invalidă.");
     const scene = story.scenes[index];
     if (camera !== undefined) scene.camera = camera;
+    if (decor !== undefined) scene.decor = decor;
     if (overlay !== undefined) scene.overlay = overlay && overlay.type ? { type: overlay.type, text: String(overlay.text || "").slice(0, 40) } : null;
     if (characters !== undefined) scene.characters = Array.isArray(characters) ? characters.slice(0, 3) : [];
     let valid;
@@ -164,6 +165,33 @@ function createStories({ dataDir, locks, withLock, UserError, worker, busyMessag
       target.prompt = text;
       writeStory(id, story);
       await S.generateDecors(folderOf(id), story, { runner, force: [decor] });
+      return view(save(load(id), { status: "editing" }));
+    });
+  }
+
+  // A new decor only for this scene: added to the list, assigned to the scene, generated. If the
+  // generation fails the storyboard is put back as it was (no scene left pointing to a missing image).
+  async function newDecor(id, { index, prompt } = {}) {
+    const project = load(id);
+    editable(project);
+    return withLock(`${id}:decor`, "Decorul se generează deja. Așteaptă puțin.", async () => {
+      const story = readStory(id);
+      if (!Number.isInteger(index) || !story.scenes[index]) throw new UserError("Scenă invalidă.");
+      const text = String(prompt || "").trim();
+      if (!text || text.length > 300) throw new UserError("Descrierea decorului trebuie să aibă între 1 și 300 de caractere.");
+      const base = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").split("-").slice(0, 4).join("-") || "decor";
+      let decorId = base;
+      for (let n = 2; story.decors.some((d) => d.id === decorId); n += 1) decorId = `${base}-${n}`;
+      const before = JSON.parse(JSON.stringify(story));
+      story.decors.push({ id: decorId, prompt: text });
+      story.scenes[index].decor = decorId;
+      writeStory(id, story);
+      try {
+        await S.generateDecors(folderOf(id), story, { runner });
+      } catch (error) {
+        writeStory(id, before);
+        throw error;
+      }
       return view(save(load(id), { status: "editing" }));
     });
   }
@@ -211,12 +239,13 @@ function createStories({ dataDir, locks, withLock, UserError, worker, busyMessag
   async function handle(req, pathname, readJson) {
     if (req.method !== "POST") return undefined;
     if (pathname === "/api/stories") return create(await readJson(req, 50_000));
-    const match = pathname.match(/^\/api\/stories\/([^/]+)\/(scene|decor|upload|preview|render)$/);
+    const match = pathname.match(/^\/api\/stories\/([^/]+)\/(scene|decor|new-decor|upload|preview|render)$/);
     if (!match) return undefined;
     const [, id, action] = match;
     if (!P.isValidId(id)) throw new UserError("Proiect invalid.");
     if (action === "scene") return editScene(id, await readJson(req, 50_000));
     if (action === "decor") return regenerateDecor(id, await readJson(req, 10_000));
+    if (action === "new-decor") return newDecor(id, await readJson(req, 10_000));
     if (action === "upload") return uploadDecor(id, await readJson(req, Math.ceil(MAX_UPLOAD * 1.4)));
     await readJson(req, 1000);
     return render(id, { preview: action === "preview" });
