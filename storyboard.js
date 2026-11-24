@@ -73,6 +73,73 @@ const STORYBOARD_SCHEMA = {
   required: ["decors", "scenes"],
 };
 
+// --- overlays that fit the text --------------------------------------------------------------
+// The 7b model picks overlays loosely (money falling for "66 percent", a badge reading "MUSIC
+// STAIRS"). Rules on the scene text: money only when the text is about money, a badge needs a
+// number, a percentage or a sum in the text gets a badge.
+const UNITS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+  unu: 1, una: 1, doi: 2, doua: 2, trei: 3, patru: 4, cinci: 5, sase: 6, sapte: 7, opt: 8, noua: 9, zece: 10, unsprezece: 11, doisprezece: 12, douasprezece: 12, treisprezece: 13, paisprezece: 14, cincisprezece: 15, saisprezece: 16, saptesprezece: 17, optsprezece: 18, nouasprezece: 19 };
+const TENS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+  douazeci: 20, treizeci: 30, patruzeci: 40, cincizeci: 50, saizeci: 60, saptezeci: 70, optzeci: 80, nouazeci: 90 };
+const SCALES = { hundred: 100, suta: 100, sute: 100, thousand: 1000, mie: 1000, mii: 1000 };
+const plain = (word) => word.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+// "sixty-six" → 66, "treizeci și doi" → 32; null if the words aren't a number.
+function numberWords(text) {
+  const words = plain(text).split(/[\s-]+/).filter((w) => w && w !== "and" && w !== "si");
+  if (!words.length) return null;
+  let total = 0;
+  let current = 0;
+  for (const word of words) {
+    if (word in UNITS) current += UNITS[word];
+    else if (word in TENS) current += TENS[word];
+    else if (word in SCALES) { current = Math.max(1, current) * SCALES[word]; if (SCALES[word] >= 1000) { total += current; current = 0; } }
+    else return null;
+  }
+  return total + current;
+}
+
+const NUMBER_WORD = new RegExp(`\\b(?:${[...Object.keys(UNITS), ...Object.keys(TENS), ...Object.keys(SCALES)].join("|")})(?:(?:[\\s-]+|\\s+(?:and|si)\\s+)(?:${[...Object.keys(UNITS), ...Object.keys(TENS), ...Object.keys(SCALES)].join("|")}))*\\b`, "g");
+const MONEY = /\$|€|£|\b(dollars?|euros?|pounds?|money|cash|prize|fines?|paid|pay|salary|lei|bani|premiu|amend[aă]|amenzi|bacșiș)\b/i;
+const PERCENT = /^\s*(%|percent|per cent|la sut[aă]|procente?)/i;
+const UP = /\b(more|increase[ds]?|rose|grew|up|doubled|mai mul[țt]i|a crescut|au crescut)\b/i;
+const DOWN = /\b(less|fewer|dropped|fell|down|decreased|mai pu[țt]ini|a sc[aă]zut|au sc[aă]zut)\b/i;
+
+// Numbers in the text, with whether each is a percentage; years (1900–2099) are skipped.
+function numbersIn(text) {
+  const found = [];
+  const ascii = plain(text);
+  for (const match of text.matchAll(/\d[\d.,]*/g)) {
+    const value = Number(match[0].replace(/[.,](?=\d{3}\b)/g, "").replace(",", "."));
+    if (!Number.isFinite(value)) continue;
+    if (/^\d{4}$/.test(match[0]) && value >= 1900 && value <= 2099) continue;
+    found.push({ value, at: match.index, percent: PERCENT.test(text.slice(match.index + match[0].length)) });
+  }
+  for (const match of ascii.matchAll(NUMBER_WORD)) {
+    const value = numberWords(match[0]);
+    if (value === null || value < 2) continue; // "one night", "a"
+    found.push({ value, at: match.index, percent: PERCENT.test(ascii.slice(match.index + match[0].length)) });
+  }
+  return found.sort((a, b) => a.at - b.at);
+}
+
+function badgeFor(text) {
+  const numbers = numbersIn(text);
+  const percent = numbers.find((n) => n.percent);
+  if (percent) return { type: "badge", text: `${UP.test(text) ? "+" : DOWN.test(text) ? "-" : ""}${percent.value}%` };
+  return numbers.length ? { type: "badge", text: String(numbers.at(-1).value) } : null;
+}
+
+function fitOverlay(text, overlay) {
+  if (overlay?.type === "money" && !MONEY.test(text)) return badgeFor(text);
+  if (overlay?.type === "badge" && !/\d/.test(overlay.text)) return overlay.text ? { type: "sign", text: overlay.text } : badgeFor(text);
+  if (!overlay) {
+    const badge = badgeFor(text);
+    if (badge && (badge.text.endsWith("%") || MONEY.test(text))) return badge;
+  }
+  return overlay;
+}
+
 const minDecors = (sentences) => Math.min(8, Math.max(3, Math.ceil(sentences / 3)));
 
 // Decors must not contain people (the characters are drawn on top); the 7b model still writes
@@ -165,13 +232,14 @@ function sceneFrom(group, attrs, names) {
   }
   if (speaker && !seen.has(speaker)) characters.push({ name: speaker, expression: "neutral", position: "center" });
   const type = pick(attrs.overlay_type, S.OVERLAYS, null);
+  const text = group.map((s) => s.text).join(" ");
   return {
-    text: group.map((s) => s.text).join(" "),
+    text,
     speaker,
     decor: attrs.decor,
     camera: pick(attrs.camera, S.CAMERAS, "static"),
     characters: characters.slice(0, 3),
-    overlay: type ? { type, text: ["money", "flash"].includes(type) ? "" : String(attrs.overlay_text || "").trim().slice(0, 30) } : null,
+    overlay: fitOverlay(text, type ? { type, text: ["money", "flash"].includes(type) ? "" : String(attrs.overlay_text || "").trim().slice(0, 30) } : null),
   };
 }
 
@@ -257,4 +325,4 @@ function rulesStoryboard(split, language) {
   };
 }
 
-module.exports = { splitScript, buildStoryboardPrompt, parseStoryboard, rulesStoryboard, cleanDecorPrompt, STORYBOARD_SCHEMA };
+module.exports = { splitScript, buildStoryboardPrompt, parseStoryboard, rulesStoryboard, cleanDecorPrompt, numberWords, STORYBOARD_SCHEMA };

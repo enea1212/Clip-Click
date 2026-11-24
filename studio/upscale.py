@@ -54,3 +54,34 @@ def upscale_image(image, net, size):
         y = net(x)[0].clamp(0, 1).permute(1, 2, 0).numpy()
     big = Image.fromarray((y * 255).round().astype(np.uint8))
     return big.resize(size, Image.LANCZOS)
+
+
+FRAME = (1260, 2240)  # what the renderer needs to cover 1080x1920 with the camera margin
+
+
+def cover_scale(width, height, frame=FRAME, tolerance=1.05):
+    """How much an image must grow to cover the frame; None if it is (almost) big enough."""
+    scale = max(frame[0] / width, frame[1] / height)
+    return round(scale, 4) if scale > tolerance else None
+
+
+def main():
+    """upscale.py <model.pth> <in> <out>: enlarges an image placed by hand (a story decor) with
+    Real-ESRGAN when it is smaller than the frame; a big enough image is only copied."""
+    import shutil
+    import sys
+    model, source, target = sys.argv[1:4]
+    image = Image.open(source)
+    scale = cover_scale(image.width, image.height)
+    if scale is None:
+        if source != target:
+            shutil.copyfile(source, target)
+        print(f"skip {image.width}x{image.height}")
+        return
+    size = (int(round(image.width * scale)), int(round(image.height * scale)))
+    upscale_image(image, load(model), size).save(target, format="PNG")
+    print(f"upscaled {image.width}x{image.height} -> {size[0]}x{size[1]}")
+
+
+if __name__ == "__main__":
+    main()

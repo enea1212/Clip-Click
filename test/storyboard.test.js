@@ -108,3 +108,30 @@ test("buildStoryboardPrompt asks for one decor every 2-3 scenes", () => {
   const prompt = B.buildStoryboardPrompt(B.splitScript(Array.from({ length: 18 }, (_, i) => `Sentence ${i}.`).join(" ")).sentences, "en");
   assert.match(prompt, /at least 6 decors/);
 });
+
+const overlayOf = (text, overlay_type, overlay_text = "") => {
+  const split = B.splitScript(text);
+  const raw = JSON.stringify({ decors: [{ id: "a", prompt: "a place" }], characters: [], scenes: [{ from: 0, to: split.sentences.length - 1, decor: "a", camera: "zoom-in", overlay_type, overlay_text }] });
+  return B.parseStoryboard(raw, split, "en").scenes[0].overlay;
+};
+
+test("overlays fit the text: money only for money, numbers become a badge", () => {
+  assert.deepEqual(overlayOf("That day, sixty-six percent more people chose the stairs.", "money"), { type: "badge", text: "+66%" });
+  assert.deepEqual(overlayOf("The fine was 500 dollars.", "money"), { type: "money", text: "" }, "money stays when the text is about money");
+  assert.deepEqual(overlayOf("Average speed dropped from thirty-two to twenty-five.", "money"), { type: "badge", text: "25" });
+  assert.equal(overlayOf("So one night, a team came.", "money"), null, "no money, no number: no overlay");
+});
+
+test("a badge without any digit becomes a sign; a number in the text with no overlay gets a badge", () => {
+  assert.deepEqual(overlayOf("So one night, a team came.", "badge", "MUSIC STAIRS"), { type: "sign", text: "MUSIC STAIRS" });
+  assert.deepEqual(overlayOf("Speed dropped by 22 percent.", ""), { type: "badge", text: "-22%" });
+  assert.equal(overlayOf("In 2009, a station had a problem.", ""), null, "a year is not a badge");
+});
+
+test("numberWords reads English and Romanian number words", () => {
+  assert.equal(B.numberWords("sixty-six"), 66);
+  assert.equal(B.numberWords("twenty five"), 25);
+  assert.equal(B.numberWords("one hundred"), 100);
+  assert.equal(B.numberWords("treizeci și doi"), 32);
+  assert.equal(B.numberWords("hello"), null);
+});
