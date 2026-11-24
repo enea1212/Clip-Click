@@ -223,7 +223,7 @@ function projectRow(item) {
   } else if (item.status === "failed") {
     detail = `incomplet — ${escapeHtml(item.error || "procesarea s-a oprit")}`;
     buttons = `<button class="text-button resume-project">Reia</button><button class="text-button danger delete-project">Șterge</button>`;
-  } else if (item.status && item.status !== "ready") {
+  } else if (item.status && !["ready", "editing"].includes(item.status)) {
     detail = escapeHtml(stageLabel(item));
     buttons = "";
   } else {
