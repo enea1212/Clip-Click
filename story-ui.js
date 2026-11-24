@@ -144,14 +144,16 @@ function renderSide() {
       <div class="story-stack">
         <h3>Scena ${selected + 1}</h3>
         <p class="story-quote">${scene.speaker ? `<b>${escapeHtml(scene.speaker)}:</b> ` : ""}${escapeHtml(scene.text)}</p>
-        <button class="text-button" type="button" data-act="regen">↻ Regenerează decorul</button>
+        <button class="text-button" type="button" data-act="regen" title="Schimbă imaginea în toate scenele care folosesc decorul">↻ Regenerează decorul${uses > 1 ? ` (${uses} scene)` : ""}</button>
+        <button class="text-button" type="button" data-act="newdecor" title="Un decor nou, după descrierea de mai jos, doar pentru scena asta">＋ Decor nou doar aici</button>
         <label class="text-button story-upload">⤒ Încarcă imagine<input type="file" accept="image/png,image/jpeg,image/webp" data-act="upload" hidden /></label>
         <span class="story-note" id="story-decor-status">${handPlaced ? "Imagine încărcată de tine." : "~20 s pentru un decor nou."}</span>
       </div>
     </div>
     <div class="story-fields">
-      <div class="full"><label class="story-label" for="story-prompt">Decor · ${escapeHtml(decor.id)} (în ${uses} ${uses === 1 ? "scenă" : "scene"})</label>
+      <div class="full"><label class="story-label" for="story-prompt">Descrierea decorului (în ${uses} ${uses === 1 ? "scenă" : "scene"})</label>
         <input id="story-prompt" value="${escapeHtml(decor.prompt)}" maxlength="300" /></div>
+      ${story.decors.length > 1 ? `<div class="full"><label class="story-label" for="story-decor">Folosește alt decor</label><select id="story-decor">${story.decors.map((d) => `<option value="${escapeHtml(d.id)}"${d.id === scene.decor ? " selected" : ""}>${escapeHtml(d.id)} — ${escapeHtml(d.prompt.slice(0, 40))}</option>`).join("")}</select></div>` : ""}
       <div><label class="story-label" for="story-camera">Cameră</label><select id="story-camera">${options(STORY_LABELS.camera, scene.camera)}</select></div>
       <div><label class="story-label" for="story-overlay">Grafic</label><select id="story-overlay">${options(STORY_LABELS.overlay, scene.overlay?.type || "")}</select></div>
       ${scene.overlay && ["badge", "sign", "emoji"].includes(scene.overlay.type) ? `<div class="full"><label class="story-label" for="story-overlay-text">Textul graficului</label><input id="story-overlay-text" value="${escapeHtml(scene.overlay.text)}" maxlength="40" /></div>` : ""}
@@ -216,7 +218,10 @@ storyEl("story-body").addEventListener("click", (event) => {
   }
   const act = event.target.closest("[data-act]")?.dataset.act;
   const scene = storyState.project?.story.scenes[storyState.selected];
-  if (act === "regen") {
+  if (act === "newdecor") {
+    const prompt = storyEl("story-prompt").value.trim();
+    decorAction(() => api(`/api/stories/${storyState.project.id}/new-decor`, { method: "POST", body: { index: storyState.selected, prompt } }), "Se generează decorul nou… (~30 s, ~1 min prima dată)");
+  } else if (act === "regen") {
     const prompt = storyEl("story-prompt").value.trim();
     decorAction(() => api(`/api/stories/${storyState.project.id}/decor`, { method: "POST", body: { decor: scene.decor, prompt } }), "Se generează decorul… (~20 s, ~1 min prima dată)");
   } else if (act === "add") {
@@ -240,6 +245,8 @@ storyEl("story-body").addEventListener("change", (event) => {
       decorAction(() => api(`/api/stories/${storyState.project.id}/upload`, { method: "POST", body: { decor: scene.decor, data: reader.result } }), "Se încarcă imaginea…");
     };
     reader.readAsDataURL(file);
+  } else if (target.id === "story-decor") {
+    saveScene({ decor: target.value });
   } else if (target.id === "story-camera") {
     saveScene({ camera: target.value });
   } else if (target.id === "story-overlay" || target.id === "story-overlay-text") {

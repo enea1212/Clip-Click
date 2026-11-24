@@ -267,3 +267,15 @@ test("validateStory makes characters with the same hair and shirt look different
   assert.deepEqual(story.characters[0].look, { skin: story.characters[0].look.skin, hair: "short", shirt: "#3b82f6" }, "the first keeps its look");
   assert.equal(story.characters[2].look.hair, "long", "a distinct one is untouched");
 });
+
+test("validateStory: similar shirts (blue vs navy) and the same hair count as the same look", () => {
+  const story = S.validateStory(minimal({ characters: [
+    { name: "ENGINEER", look: { hair: "short", shirt: "#3b82f6" } },
+    { name: "MAN", look: { hair: "short", shirt: "#1e3a8a" } },
+  ] }));
+  const [a, b] = story.characters.map((c) => c.look);
+  assert.notEqual(b.hair, a.hair, "different hair when one is free");
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const distance = Math.hypot(...rgb(a.shirt).map((v, i) => v - rgb(b.shirt)[i]));
+  assert.ok(distance > 150, `shirts too close: ${a.shirt} ${b.shirt} (${Math.round(distance)})`);
+});

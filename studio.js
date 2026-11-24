@@ -69,18 +69,22 @@ function validateStory(raw) {
       voice: character.voice ?? voices[index % voices.length],
     };
   });
-  // Two characters with the same hair and shirt look like one person on screen (seen on
-  // 2026-11-24: ENGINEER and MAN): the later one gets another shirt color (and hair if needed).
-  const seenLooks = new Set();
-  for (const [index, character] of characters.entries()) {
-    const key = () => `${character.look.hair}/${character.look.shirt}`;
-    if (seenLooks.has(key())) {
-      const shirt = SHIRTS.find((color) => !characters.some((other) => other.look.shirt === color));
-      character.look.shirt = shirt || SHIRTS[(index + 1) % SHIRTS.length];
-      if (seenLooks.has(key())) character.look.hair = HAIR.find((hair) => !seenLooks.has(`${hair}/${character.look.shirt}`)) || character.look.hair;
+  // Characters must be told apart at a glance (seen on 2026-11-24: ENGINEER and MAN, both short
+  // hair, blue and navy shirts, looked like one person). Each later character gets a hair style
+  // not used yet (while there are free ones) and a shirt clearly different in color from all
+  // earlier ones; looks that are already distinct are kept.
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const close = (a, b) => Math.hypot(...rgb(a).map((v, i) => v - rgb(b)[i])) <= 150;
+  characters.forEach((character, index) => {
+    const earlier = characters.slice(0, index);
+    const others = characters.filter((_, j) => j !== index);
+    if (earlier.some((other) => other.look.hair === character.look.hair)) {
+      character.look.hair = HAIR.find((hair) => !others.some((other) => other.look.hair === hair)) || character.look.hair;
     }
-    seenLooks.add(key());
-  }
+    if (earlier.some((other) => close(other.look.shirt, character.look.shirt))) {
+      character.look.shirt = SHIRTS.find((color) => !others.some((other) => close(other.look.shirt, color))) || character.look.shirt;
+    }
+  });
   const names = new Set(characters.map((character) => character.name));
   if (names.size !== characters.length) fail("Două personaje au același nume.");
   const knownCharacter = (name) => { if (!names.has(name)) fail(`Scena folosește personajul „${name}”, care nu e în lista de personaje.`); return name; };

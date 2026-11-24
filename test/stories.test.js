@@ -187,3 +187,29 @@ test("resume a failed story continues from the missing stage", async () => {
   assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
   assert.equal(resumed.body.status, "editing");
 });
+
+test("new decor for one scene: added, assigned and generated; the other scenes keep theirs", async () => {
+  const made = (await create()).body;
+  const before = made.story.scenes.map((s) => s.decor);
+  const res = await post(`/api/stories/${made.id}/new-decor`, { index: 2, prompt: "subway stairs painted like piano keys" });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const newId = res.body.story.scenes[2].decor;
+  assert.notEqual(newId, before[2]);
+  assert.ok(res.body.story.decors.some((d) => d.id === newId && d.prompt === "subway stairs painted like piano keys"));
+  assert.ok(fs.existsSync(path.join(DATA, made.id, `decor-${newId}.png`)));
+  res.body.story.scenes.forEach((scene, i) => { if (i !== 2) assert.equal(scene.decor, before[i]); });
+  assert.equal((await post(`/api/stories/${made.id}/new-decor`, { index: 99, prompt: "x" })).status, 400);
+  assert.equal((await post(`/api/stories/${made.id}/new-decor`, { index: 1, prompt: "  " })).status, 400);
+});
+
+test("a scene can switch to another existing decor; an unknown decor is refused", async () => {
+  const made = (await create()).body;
+  const added = (await post(`/api/stories/${made.id}/new-decor`, { index: 0, prompt: "a rainy street" })).body;
+  const newId = added.story.scenes[0].decor;
+  const moved = await post(`/api/stories/${made.id}/scene`, { index: 4, decor: newId });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal(moved.body.story.scenes[4].decor, newId);
+  const bad = await post(`/api/stories/${made.id}/scene`, { index: 4, decor: "nowhere" });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /decorul/);
+});
