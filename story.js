@@ -25,7 +25,7 @@ async function buildStory(folder, { preview = false, log = console.log } = {}) {
   const timeline = S.sceneTimeline(durations);
   const words = await timed(log, "timpi pe cuvânt", () => S.storyWords(folder, story, timeline));
   const total = timeline.at(-1).end;
-  fs.writeFileSync(path.join(folder, "captions.ass"), buildAss(words, 0, total, { maxGroup: 2 }), "utf8");
+  fs.writeFileSync(path.join(folder, "captions.ass"), buildAss(words, 0, total, { maxGroup: 2, top: 560 }), "utf8");
 
   const size = preview ? PREVIEW : FULL;
   const lookOf = (name) => story.characters.find((character) => character.name === name).look;

@@ -2,7 +2,7 @@
 // already on disk, and how to show a project whose job is no longer running.
 
 const INTERRUPTED = "Procesarea a fost întreruptă.";
-const RUNNING = new Set(["downloading", "downloadingSegments", "transcribing", "choosing", "rendering"]);
+const RUNNING = new Set(["downloading", "downloadingSegments", "transcribing", "choosing", "rendering", "storyboarding", "decors"]);
 
 const fileOf = (publicUrl) => String(publicUrl || "").split("?")[0].split("/").pop();
 const AUDIO_SOURCE = /^source\.(m4a|m4b|webm|opus|ogg|mp3|aac|wav|mka|mp4)$/i;

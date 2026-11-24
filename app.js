@@ -1,7 +1,7 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const form = $("#url-form");
 const urlInput = $("#youtube-url");
-const views = { start: $("#start-view"), results: $("#results-view"), projects: $("#projects-view") };
+const views = { start: $("#start-view"), results: $("#results-view"), projects: $("#projects-view"), storyNew: $("#story-new-view"), story: $("#story-view") };
 const grid = $("#clip-grid");
 
 function isYouTubeUrl(value) {
@@ -43,7 +43,8 @@ function showView(name) {
   for (const [key, el] of Object.entries(views)) el.classList.toggle("hidden", key !== name);
   $("#new-link").classList.toggle("active", name === "start");
   $("#history-link").classList.toggle("active", name === "projects");
-  $("#crumb").textContent = name === "projects" ? "Proiectele mele" : name === "results" ? "Proiect" : "Creează Shorts";
+  $("#story-link").classList.toggle("active", name === "storyNew");
+  $("#crumb").textContent = { projects: "Proiectele mele", results: "Proiect", storyNew: "Poveste nouă", story: "Poveste" }[name] || "Creează Shorts";
   if (!sameView) window.scrollTo({ top: 0 });
 }
 
@@ -59,6 +60,9 @@ async function route() {
   const hash = location.hash;
   const projectMatch = hash.match(/^#\/p\/([0-9a-f-]{36})$/);
   if (hash === "#/projects") return showProjects();
+  if (hash === "#/story/new") return showStoryNew();
+  const storyMatch = hash.match(/^#\/s\/([0-9a-f-]{36})$/);
+  if (storyMatch) return openStory(storyMatch[1]);
   if (projectMatch) return openProject(projectMatch[1]);
   showView("start");
 }
@@ -166,6 +170,7 @@ const goStart = () => { if (location.hash) location.hash = ""; else route(); };
 $("#back-button").addEventListener("click", goStart);
 $("#new-link").addEventListener("click", goStart);
 $("#history-link").addEventListener("click", () => { location.hash = "#/projects"; });
+$("#story-link").addEventListener("click", () => { location.hash = "#/story/new"; });
 window.addEventListener("hashchange", route);
 
 /* ---------- projects list ---------- */
@@ -191,7 +196,9 @@ const STAGE_LABELS = {
   downloadingSegments: "Se descarcă segmentele video alese…",
   transcribing: "Se transcrie cu Whisper…",
   choosing: "AI notează momentele…",
-  rendering: "Se randează clipurile…",
+  rendering: "Se randează…",
+  storyboarding: "AI împarte povestea în scene…",
+  decors: "Se generează decorurile…",
 };
 
 // Stage text, with the AI's progress while it scores candidates ("AI notează momentele: 4/10").
@@ -216,14 +223,14 @@ function projectRow(item) {
   } else if (item.status === "failed") {
     detail = `incomplet — ${escapeHtml(item.error || "procesarea s-a oprit")}`;
     buttons = `<button class="text-button resume-project">Reia</button><button class="text-button danger delete-project">Șterge</button>`;
-  } else if (item.status && item.status !== "ready") {
+  } else if (item.status && !["ready", "editing"].includes(item.status)) {
     detail = escapeHtml(stageLabel(item));
     buttons = "";
   } else {
-    detail = `${item.clipCount} clipuri`;
+    detail = item.type === "story" ? `poveste · ${item.sceneCount} scene` : `${item.clipCount} clipuri`;
   }
   return `
-    <div class="project-row${item.status === "failed" ? " incomplete" : ""}" data-id="${escapeHtml(item.id)}">
+    <div class="project-row${item.status === "failed" ? " incomplete" : ""}" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.type || "clips")}">
       <div class="project-main"><strong>${title}</strong><span>${date} · ${detail}</span></div>
       ${buttons}
     </div>`;
@@ -232,7 +239,8 @@ function projectRow(item) {
 $("#project-list").addEventListener("click", async (event) => {
   const row = event.target.closest(".project-row");
   if (!row) return;
-  if (event.target.closest(".open-project")) location.hash = `#/p/${row.dataset.id}`;
+  const projectHash = (row.dataset.type === "story" ? "#/s/" : "#/p/") + row.dataset.id;
+  if (event.target.closest(".open-project")) location.hash = projectHash;
   const resume = event.target.closest(".resume-project");
   if (resume) {
     resume.disabled = true;
@@ -241,7 +249,7 @@ $("#project-list").addEventListener("click", async (event) => {
     const token = viewToken;
     try {
       await api(`/api/projects/${row.dataset.id}/resume`, { method: "POST", body: {} });
-      if (token === viewToken) location.hash = `#/p/${row.dataset.id}`;
+      if (token === viewToken) location.hash = projectHash;
     } catch (error) {
       if (token === viewToken) {
         alert(error.message);

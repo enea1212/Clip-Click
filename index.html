@@ -25,6 +25,10 @@
             <span class="nav-icon" aria-hidden="true">＋</span>
             <span>Creează Shorts</span>
           </button>
+          <button class="nav-item" id="story-link" type="button">
+            <span class="nav-icon" aria-hidden="true">✎</span>
+            <span>Poveste nouă</span>
+          </button>
           <button class="nav-item" id="history-link" type="button">
             <span class="nav-icon" aria-hidden="true">▤</span>
             <span>Proiectele mele</span>
@@ -110,10 +114,59 @@
           <div class="project-list" id="project-list" aria-live="polite"></div>
         </section>
 
+        <section class="results-view hidden" id="story-new-view" aria-labelledby="story-new-title">
+          <div class="results-heading">
+            <div>
+              <div class="eyebrow"><span class="eyebrow-icon" aria-hidden="true">✦</span> POVESTE NOUĂ</div>
+              <h2 id="story-new-title">Scrie <span>povestea</span></h2>
+              <p class="results-subtitle">AI-ul o împarte în scene și propune decoruri, personaje și grafice. Textul tău rămâne exact cum l-ai scris.</p>
+            </div>
+          </div>
+          <div class="story-script">
+            <form class="story-card" id="story-form">
+              <div class="story-langs" role="radiogroup" aria-label="Limba poveștii">
+                <label class="story-lang"><input type="radio" name="story-lang" value="en" checked /><strong>English</strong><span>voce Kokoro, mai naturală</span></label>
+                <label class="story-lang"><input type="radio" name="story-lang" value="ro" /><strong>Română</strong><span>voce Piper</span></label>
+              </div>
+              <label class="story-label" for="story-text">Textul poveștii</label>
+              <textarea id="story-text" rows="12" maxlength="5000" placeholder="In 2010, one street in Stockholm had a speeding problem.&#10;MAYOR: What if we paid the drivers who slow down?"></textarea>
+              <div class="story-form-foot">
+                <span class="story-note" id="story-count">0 cuvinte · replicile se scriu <b>NUME: replica</b></span>
+                <button class="submit-button" id="story-create" type="submit"><span>Pregătește scenele</span><span class="button-arrow" aria-hidden="true">→</span></button>
+              </div>
+              <div id="story-create-status" aria-live="polite"></div>
+            </form>
+            <div class="story-card">
+              <div class="section-kicker">CE URMEAZĂ</div>
+              <ol class="story-steps">
+                <li><b>Scenele</b> (AI local, ~3–5 min): împarte textul și alege decorurile, personajele și camera.</li>
+                <li><b>Decorurile</b> (~20 s fiecare): le poți regenera sau înlocui cu imaginea ta.</li>
+                <li><b>Previzualizare</b> rapidă, apoi <b>Creează video</b> (~1 min).</li>
+              </ol>
+              <p class="story-note">Poți închide pagina: povestea apare în „Proiectele mele”.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="results-view story-view hidden" id="story-view" aria-labelledby="story-title">
+          <div class="results-heading">
+            <div>
+              <div class="eyebrow" id="story-kicker"><span class="eyebrow-icon" aria-hidden="true">✦</span> POVESTE</div>
+              <h2 id="story-title">Povestea <span>ta</span></h2>
+            </div>
+            <div class="story-actions">
+              <button class="text-button" id="story-preview" type="button">Previzualizare</button>
+              <button class="submit-button" id="story-render" type="button"><span>Creează video</span></button>
+            </div>
+          </div>
+          <div id="story-body" aria-live="polite"></div>
+        </section>
+
         <footer><span>ClipClick <span class="footer-dot">·</span> dintr-un video lung, în clipuri scurte</span><span>Făcut pentru creatori <span class="sparkle">✳</span></span></footer>
       </main>
     </div>
     <script src="layout.js"></script>
+    <script src="story-ui.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -186,3 +186,60 @@ test("generateDecors asks imagegen to upscale every decor with Real-ESRGAN", asy
     assert.deepEqual([jobs.upscale.width, jobs.upscale.height], [1260, 2240]);
   } finally { env.restore(); }
 });
+
+test("generateDecors with force regenerates with a new seed", async () => {
+  const env = fakeEnv();
+  try {
+    const seeds = [];
+    for (let k = 0; k < 2; k += 1) {
+      await S.generateDecors(env.folder, threeDecors(), { force: ["a"] });
+      const jobs = JSON.parse(fs.readFileSync(path.join(env.folder, "decor-jobs.json"), "utf8"));
+      const item = jobs.items.find((it) => path.basename(it.out) === "decor-a.png");
+      assert.ok(item && path.isAbsolute(item.out));
+      seeds.push(item.seed);
+    }
+    assert.notEqual(seeds[0], seeds[1]);
+  } finally { env.restore(); }
+});
+
+test("generateDecors reads the old decors.json format", async () => {
+  const env = fakeEnv();
+  try {
+    for (const id of ["a", "b", "c"]) fs.writeFileSync(path.join(env.folder, `decor-${id}.png`), "old");
+    fs.writeFileSync(path.join(env.folder, "decors.json"), JSON.stringify({ a: "a highway", b: "a house", c: "a living room" }));
+    const edited = threeDecors();
+    edited.decors[1].prompt = "a big house";
+    assert.deepEqual((await S.generateDecors(env.folder, edited)).generated, ["b"]);
+  } finally { env.restore(); }
+});
+
+const { createImageWorker } = require("../image-worker");
+const jobsFor = (folder, names) => ({ items: names.map((name, i) => ({ prompt: name, out: path.join(folder, `${name}.png`), seed: i })) });
+const serveCount = (env) => env.calls().filter((line) => line.includes("--serve")).length;
+
+test("image worker runs jobs one at a time and stops after idle", async () => {
+  const env = fakeEnv();
+  const worker = createImageWorker({ idleMs: 50 });
+  try {
+    const [first, second] = await Promise.all([worker.run(jobsFor(env.folder, ["x"])), worker.run(jobsFor(env.folder, ["y", "z"]))]);
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 2);
+    assert.ok(fs.existsSync(path.join(env.folder, "z.png")));
+    assert.equal(serveCount(env), 1, "one process for both jobs");
+    await new Promise((r) => setTimeout(r, 300));
+    await worker.run(jobsFor(env.folder, ["w"]));
+    assert.equal(serveCount(env), 2, "a new process after the idle stop");
+  } finally { worker.stop(); env.restore(); }
+});
+
+test("image worker rejects the current job when the process dies and restarts", async () => {
+  const flag = path.join(os.tmpdir(), `cliptrei-dies-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(flag, "");
+  const env = fakeEnv({ imagegenServeDies: flag });
+  const worker = createImageWorker({ idleMs: 1000 });
+  try {
+    await assert.rejects(worker.run(jobsFor(env.folder, ["x"])), /imagini/);
+    const items = await worker.run(jobsFor(env.folder, ["y"]));
+    assert.equal(items.length, 1);
+  } finally { worker.stop(); env.restore(); }
+});

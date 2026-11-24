@@ -162,12 +162,13 @@ function lineBreakAfter(group) {
 }
 
 // Normal: bottom-centre at ~75% height. Split ("Video jos"): centred on the middle line (y = 960).
-function styleLine(split) {
-  const [alignment, marginV] = split ? [5, 0] : [2, 480];
+// top: captions anchored at the top, MarginV px down (stories: above the characters' heads).
+function styleLine(split, top) {
+  const [alignment, marginV] = top !== undefined ? [8, top] : split ? [5, 0] : [2, 480];
   return `Style: Default,Arial Black,90,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,3,${alignment},60,60,${marginV},1`;
 }
 
-function buildAss(words, clipStart, clipEnd, { split = false, maxGroup = MAX_GROUP } = {}) {
+function buildAss(words, clipStart, clipEnd, { split = false, maxGroup = MAX_GROUP, top } = {}) {
   const length = clipEnd - clipStart;
   const inClip = words
     .filter((word) => word.end > clipStart && word.start < clipEnd)
@@ -184,7 +185,7 @@ function buildAss(words, clipStart, clipEnd, { split = false, maxGroup = MAX_GRO
       events.push(`Dialogue: 0,${assTime(word.start)},${assTime(end)},Default,,0,0,0,,${text}`);
     });
   }
-  return ASS_HEADER.replace("{STYLE}", styleLine(split)) + events.join("\n") + "\n";
+  return ASS_HEADER.replace("{STYLE}", styleLine(split, top)) + events.join("\n") + "\n";
 }
 
 module.exports = { parseVttWords, groupWords, buildAss, pickCaptionTrack, tidyTimings, isSpokenWord };

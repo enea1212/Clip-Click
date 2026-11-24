@@ -118,6 +118,26 @@ if (command === "ffmpeg") {
 }
 
 // Studio scripts (animated stories): matched by the script name, whatever the Python path.
+// imagegen.py --serve: one JSON job per stdin line, one JSON answer per stdout line.
+// control.imagegenServeDies = path of a flag file: while it exists, the next job crashes the process.
+if (/imagegen\.py$/.test(args[0] || "") && args[1] === "--serve") {
+  const lines = require("node:readline").createInterface({ input: process.stdin });
+  lines.on("line", (line) => {
+    if (!line.trim()) return;
+    // The process lives across requests: re-read the control file for every job.
+    const live = controlFile && fs.existsSync(controlFile) ? JSON.parse(fs.readFileSync(controlFile, "utf8")) : {};
+    if (live.imagegenServeDies && fs.existsSync(live.imagegenServeDies)) {
+      fs.rmSync(live.imagegenServeDies);
+      process.stderr.write("RuntimeError: simulated imagegen crash\n");
+      process.exit(1);
+    }
+    const jobs = JSON.parse(line);
+    for (const item of jobs.items) fs.writeFileSync(item.out, "fake png");
+    process.stdout.write(`${JSON.stringify({ ok: true, items: jobs.items.map((item) => ({ out: item.out, seconds: 0.1, device: "GPU" })) })}\n`);
+  });
+  lines.on("close", () => process.exit(0));
+  return;
+}
 if (/imagegen\.py$/.test(args[0] || "")) {
   if (control.imagegenFails) fail("RuntimeError: simulated imagegen failure");
   const jobs = JSON.parse(fs.readFileSync(args[1], "utf8"));

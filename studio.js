@@ -107,33 +107,55 @@ const DECOR_UPSCALE = { width: 1260, height: 2240 };
 const decorFile = (id) => `decor-${id}.png`;
 const seedOf = (text) => crypto.createHash("sha1").update(text).digest().readUInt32BE(0) % 2147483647;
 
-// Generates, in one imagegen run (the model loads once), every decor that has no image yet or
-// whose prompt changed since it was generated (decors.json: id → prompt). An image placed by
-// hand has no entry there and is never overwritten.
-async function generateDecors(folder, story, { log = () => {} } = {}) {
-  const recordFile = path.join(folder, "decors.json");
-  let record = {};
-  try { record = JSON.parse(fs.readFileSync(recordFile, "utf8")); } catch { /* none yet */ }
-  const missing = story.decors.filter((decor) => !fs.existsSync(path.join(folder, decorFile(decor.id)))
-    || (record[decor.id] !== undefined && record[decor.id] !== decor.prompt));
+// decors.json: { prompts: {id: prompt}, seeds: {id: n} }. An id with no prompt entry is an image
+// placed by hand. The first format was {id: prompt}; it is read as `prompts`.
+function readDecorRecord(folder) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(folder, "decors.json"), "utf8"));
+    return raw && raw.prompts ? { prompts: raw.prompts, seeds: raw.seeds || {} } : { prompts: raw || {}, seeds: {} };
+  } catch {
+    return { prompts: {}, seeds: {} };
+  }
+}
+const writeDecorRecord = (folder, record) => fs.writeFileSync(path.join(folder, "decors.json"), JSON.stringify(record, null, 2));
+
+// Default runner: one imagegen.py run (the model loads once for all the decors of the call).
+async function runImagegenOnce(jobs, { folder, log }) {
+  fs.writeFileSync(path.join(folder, "decor-jobs.json"), JSON.stringify(jobs, null, 2));
+  const out = await run(studioPython(), [script("imagegen.py"), "decor-jobs.json"], { cwd: folder });
+  for (const line of out.split(/\r?\n/).filter(Boolean)) log(`[decor] ${line}`);
+}
+
+// Generates every decor that has no image yet, whose prompt changed since it was generated, or
+// that is in `force` (a new seed each time, so „Regenerează” gives another picture). An image
+// placed by hand is never overwritten unless forced. `runner(jobs)`: e.g. the long-lived worker.
+async function generateDecors(folder, story, { log = () => {}, runner = null, force = [] } = {}) {
+  const record = readDecorRecord(folder);
+  const missing = story.decors.filter((decor) => force.includes(decor.id)
+    || !fs.existsSync(path.join(folder, decorFile(decor.id)))
+    || (record.prompts[decor.id] !== undefined && record.prompts[decor.id] !== decor.prompt));
   if (!missing.length) return { generated: [] };
+  for (const id of force) record.seeds[id] = (record.seeds[id] || 0) + 1;
   const jobs = {
     model_dir: path.join(MODELS_DIR, "sd-turbo-ov"),
     ...DECOR_SIZE, steps: DECOR_STEPS, device_order: ["GPU", "CPU"],
     upscale: { model: path.join(MODELS_DIR, "realesrgan", "realesr-general-x4v3.pth"), ...DECOR_UPSCALE },
-    items: missing.map((decor) => ({ prompt: `${decor.prompt}, ${DECOR_STYLE}`, out: decorFile(decor.id), seed: seedOf(decor.id) })),
+    items: missing.map((decor) => ({
+      prompt: `${decor.prompt}, ${DECOR_STYLE}`,
+      out: path.join(folder, decorFile(decor.id)),
+      seed: (seedOf(decor.id) + (record.seeds[decor.id] || 0) * 7919) % 2147483647,
+    })),
   };
-  fs.writeFileSync(path.join(folder, "decor-jobs.json"), JSON.stringify(jobs, null, 2));
   try {
-    const out = await run(studioPython(), [script("imagegen.py"), "decor-jobs.json"], { cwd: folder });
-    for (const line of out.split(/\r?\n/).filter(Boolean)) log(`[decor] ${line}`);
+    if (runner) await runner(jobs);
+    else await runImagegenOnce(jobs, { folder, log });
   } catch (error) {
     throw new Error(`Generarea decorurilor a eșuat (imagegen): ${error.message}`);
   }
   const absent = missing.filter((decor) => !fs.existsSync(path.join(folder, decorFile(decor.id))));
   if (absent.length) throw new Error(`Decorul „${absent[0].id}” n-a fost generat.`);
-  for (const decor of missing) record[decor.id] = decor.prompt;
-  fs.writeFileSync(recordFile, JSON.stringify(record, null, 2));
+  for (const decor of missing) record.prompts[decor.id] = decor.prompt;
+  writeDecorRecord(folder, record);
   return { generated: missing.map((decor) => decor.id) };
 }
 
@@ -247,6 +269,6 @@ async function storyWords(folder, story, timeline) {
 module.exports = {
   alignWords, storyWords,
   sceneTimeline, synthesizeVoices, GAP, LAST_GAP,
-  ROOT, MODELS_DIR, studioPython, script, validateStory, generateDecors, decorFile, DECOR_STYLE, DECOR_SIZE,
+  ROOT, MODELS_DIR, studioPython, script, validateStory, generateDecors, decorFile, readDecorRecord, writeDecorRecord, DECOR_STYLE, DECOR_SIZE,
   CAMERAS, EXPRESSIONS, POSITIONS, OVERLAYS, HAIR, LANGUAGES,
 };

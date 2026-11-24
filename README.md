@@ -36,7 +36,11 @@ Pe un laptop fara placa video dedicata, etapa AI dureaza cel mult ~12 minute pe 
 
 Clipurile rezultate se salveaza in `data/<id>/short-1.mp4` etc. Directoarele din `data` pot fi sterse dupa ce descarci clipurile.
 
-## Povesti animate (in lucru)
+## Povesti animate
+
+Din aplicatie: meniul „Poveste noua” → scrii textul (replicile ca `NUME: replica`) → AI-ul local face scenele (~4 min) si decorurile (~20 s fiecare) → in editor schimbi decoruri, camera, grafice, personaje → Previzualizare → Creeaza video → Descarca.
+
+### Din linia de comanda
 
 Din `story.json` (scene cu text, decor, personaje, elemente grafice) iese un video vertical cu voce, decoruri generate local si subtitrari. Instalare o singura data (~10 min, ~7 GB): `python studio/setup.py`. Apoi: `node story.js <folder>` (exemplu: `docs/examples/speed-camera/story.json`). Decorurile folosesc SD-Turbo (Stability AI Community License: gratuit si comercial sub 1 milion $ venit/an, cu inregistrare gratuita pentru uz comercial); marirea decorurilor: Real-ESRGAN realesr-general-x4v3 (BSD-3); vocile: Kokoro (Apache-2.0) si Piper `ro_RO-mihai-medium` (CC0). TikTok cere marcarea continutului generat cu AI.
 
