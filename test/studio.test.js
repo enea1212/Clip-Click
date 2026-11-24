@@ -176,3 +176,13 @@ test("generateDecors regenerates a decor whose prompt changed, but keeps a hand-
     assert.equal(fs.readFileSync(path.join(env.folder, "decor-c.png"), "utf8"), "my own image");
   } finally { env.restore(); }
 });
+
+test("generateDecors asks imagegen to upscale every decor with Real-ESRGAN", async () => {
+  const env = fakeEnv();
+  try {
+    await S.generateDecors(env.folder, threeDecors());
+    const jobs = JSON.parse(fs.readFileSync(path.join(env.folder, "decor-jobs.json"), "utf8"));
+    assert.equal(path.basename(jobs.upscale.model), "realesr-general-x4v3.pth");
+    assert.deepEqual([jobs.upscale.width, jobs.upscale.height], [1260, 2240]);
+  } finally { env.restore(); }
+});

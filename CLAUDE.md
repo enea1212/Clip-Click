@@ -47,7 +47,7 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - AI (`qwen2.5:7b`, CPU): ~60 s/candidat. TED 14 min: 464 s total. Stream GTA 6 h, din subtitrări existente: 939 s total (analiză volum + 10 candidați + clasare + 3 randări).
 - Analiza volumului pe 6 h: 47 s. Vârfuri mari care ajung la AI pe GTA: 1/12 → 6/12 cu preselecția după sunet.
 - Descărcare parțială, TED 14 min (reguli, fără AI): 293 s total; audio 13 MB + 3 segmente ~30 MB, proiect 71 MB. Segmentele sunt sincronizate cu audio-ul la 1 ms (corelație), A/V pornesc amândouă de la 0.
-- Poveste exemplu (12 scene, 6 decoruri, 38 s): **189 s total** — decoruri 103 s (încărcare model ~40 s + ~11,3 s/imagine 576×1024 pe Iris Xe), voce Kokoro 29 s, Whisper 15 s, randare 42 s (~timp real la 1080×1920@30). Pe procesor imaginile ar dura ~45 s fiecare; pe Iris Xe prin OpenVINO, de ~6× mai repede.
+- Poveste exemplu (12 scene, 6 decoruri, 38 s): **189 s total** fără mărire — decoruri 103 s (încărcare model ~40 s + ~11,3 s/imagine 576×1024 pe Iris Xe), voce Kokoro 29 s, Whisper 15 s, randare 42 s (~timp real la 1080×1920@30). **Cu Real-ESRGAN (2026-11-24): ~20,7 s/decor** (mărirea pe procesor adaugă ~9 s), decoruri 180 s → o poveste nouă ~4,5 min. Pe procesor imaginile ar dura ~45 s fiecare; pe Iris Xe prin OpenVINO, de ~6× mai repede.
 
 ## Capcane cunoscute
 - `faster-whisper` 1.2.1 + `av` 19 crapă (`open()` nu mai acceptă `metadata_errors`). Ocolire: `transcribe.py` citește WAV-ul cu `wave` + numpy și îi dă lui Whisper eșantioanele.
@@ -71,11 +71,12 @@ Aplicație locală (Node + ffmpeg + yt-dlp + Whisper) care primește un link You
 - **SD-Turbo + OpenVINO `reshape`:** biblioteca dublează mereu lotul UNet (presupune guidance), iar SD-Turbo rulează fără → eroare de formă la generare. `imagegen.py` recitește UNet-ul de pe disc și îi dă lotul 1. Fără dimensiune fixă, prima imagine pe placă durează ~60 s.
 - **Piper nu scoate niciun sunet** dacă textul conține „ ” (eroare `wave`). `tts.py` scoate ghilimelele tipografice doar din textul trimis vocii.
 - OpenVINO pe procesor (fp32) nu e mai rapid decât PyTorch; câștigul vine doar de pe placa Iris Xe (`GPU`).
+- **Decoruri pixelate** (observat de Enea 2026-11-24): 576×1024 mărit ~2,2× (+ zoom) arată neclar lângă personajele desenate la rezoluție finală. Rezolvat cu Real-ESRGAN `realesr-general-x4v3` (BSD-3, 5 MB, `studio/upscale.py`) pe procesor; **pe Iris Xe prin OpenVINO dă o imagine greșită** (și în fp32), deci nu se mută pe placă.
 
 ## Unde am rămas (2026-11-24)
 În `main` (PR #1–#12, #17): Whisper + „Taie pauzele”, editor per clip, „Reia”, un singur video odată, protecție cereri, teste end-to-end, „LOCUL n DIN 3”, alegerea momentelor cu AI (#7), preselecția după sunet (#8), **interfața ClipClick** (#9), **plafonul de 12 min pentru AI** (#10) și **descărcarea parțială** (#12); regulile de lucru în doi (#17, `CONTRIBUTING.md`). 154 de teste în `main`.
 
-**Povești animate, partea 1 (PR #19, deschis, branch `feature/povesti-motor`, issue #18):** `node story.js <folder>` face video din `story.json` scris de mână; exemplul `docs/examples/speed-camera` → 38 s în 189 s, verificat vizual (`data/story-speed/story.mp4`). 173 de teste Node + 10 Python. Probleme știute: subtitrările acoperă uneori personajele; SD-Turbo mai dublează obiecte; „Regenerează” va avea nevoie de seed variabil.
+**Povești animate, partea 1 (PR #19, deschis, branch `feature/povesti-motor`, issue #18):** `node story.js <folder>` face video din `story.json` scris de mână; exemplul `docs/examples/speed-camera` → 38 s în 189 s, verificat vizual (`data/story-speed/story.mp4`). 173 de teste Node + 10 Python. Probleme știute: subtitrările acoperă uneori personajele; SD-Turbo mai dublează obiecte (decorurile pixelate rezolvate cu Real-ESRGAN); „Regenerează” va avea nevoie de seed variabil.
 
 **Partea 2 (următoarea, după merge la #19):** lista de scene scrisă de AI (Ollama, textul lui Enea neschimbat, plafon ~6 min, reguli de rezervă), interfața „Poveste nouă” + editor de scene (miniaturi, Regenerează, Încarcă imagine, cameră/personaje/grafic) + previzualizare 540×960, integrare în „Proiectele mele”/„Reia”/job unic, proces de imagini ținut pornit ~10 min, subtitrări mutate mai sus. Estimare: 4–6 ore, 3–4 PR-uri; **întâi o machetă a editorului de scene pentru Enea**. Un video de 40–60 s ar dura ~7–10 min + editare.
 

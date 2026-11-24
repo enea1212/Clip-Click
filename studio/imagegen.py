@@ -58,10 +58,17 @@ def main():
     log(f"device={device}" + ("" if device == "GPU" else " (placa video indisponibilă)") + f" load={time.time() - started:.1f}s")
 
     import torch
+    upscaler, upscale_size = None, None
+    if jobs.get("upscale"):
+        import upscale
+        upscaler = upscale.load(jobs["upscale"]["model"])
+        upscale_size = (jobs["upscale"]["width"], jobs["upscale"]["height"])
     for item in jobs["items"]:
         t = time.time()
         image = pipe(prompt=item["prompt"], num_inference_steps=steps, guidance_scale=0.0, width=width, height=height,
                      generator=torch.Generator().manual_seed(int(item.get("seed", 0)))).images[0]
+        if upscaler is not None:
+            image = upscale.upscale_image(image, upscaler, upscale_size)
         image.save(item["out"])
         print(json.dumps({"out": item["out"], "seconds": round(time.time() - t, 2), "device": device}), flush=True)
 

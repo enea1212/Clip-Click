@@ -102,6 +102,8 @@ function validateStory(raw) {
 const DECOR_STYLE = "stylized 3D render, bright daylight, clean cartoonish realism, cinematic lighting, no people, no text";
 const DECOR_SIZE = { width: 576, height: 1024 };
 const DECOR_STEPS = 2;
+// Real-ESRGAN (studio/upscale.py): decors are stored at 1260x2240, enough for 1080x1920 + camera zoom.
+const DECOR_UPSCALE = { width: 1260, height: 2240 };
 const decorFile = (id) => `decor-${id}.png`;
 const seedOf = (text) => crypto.createHash("sha1").update(text).digest().readUInt32BE(0) % 2147483647;
 
@@ -118,6 +120,7 @@ async function generateDecors(folder, story, { log = () => {} } = {}) {
   const jobs = {
     model_dir: path.join(MODELS_DIR, "sd-turbo-ov"),
     ...DECOR_SIZE, steps: DECOR_STEPS, device_order: ["GPU", "CPU"],
+    upscale: { model: path.join(MODELS_DIR, "realesrgan", "realesr-general-x4v3.pth"), ...DECOR_UPSCALE },
     items: missing.map((decor) => ({ prompt: `${decor.prompt}, ${DECOR_STYLE}`, out: decorFile(decor.id), seed: seedOf(decor.id) })),
   };
   fs.writeFileSync(path.join(folder, "decor-jobs.json"), JSON.stringify(jobs, null, 2));

@@ -14,7 +14,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENV = os.path.join(ROOT, "studio", "venv")
 PY = os.path.join(VENV, "Scripts" if os.name == "nt" else "bin", "python.exe" if os.name == "nt" else "python")
 MODELS = os.environ.get("CLIPTREI_MODELS_DIR") or os.path.join(ROOT, "models")
-KOKORO_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
+ESRGAN_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth"
+KOKORO_URL ="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 CONVERT = """
 import sys
 from optimum.intel import OVStableDiffusionPipeline
@@ -54,6 +55,13 @@ def main():
     piper = os.path.join(MODELS, "piper")
     if not os.path.exists(os.path.join(piper, "ro_RO-mihai-medium.onnx")):
         run(PY, "-m", "piper.download_voices", "ro_RO-mihai-medium", "--data-dir", piper)
+
+    step("Real-ESRGAN pentru mărirea decorurilor (realesr-general-x4v3, BSD-3)")
+    esrgan = os.path.join(MODELS, "realesrgan", "realesr-general-x4v3.pth")
+    if not os.path.exists(esrgan):
+        os.makedirs(os.path.dirname(esrgan), exist_ok=True)
+        urllib.request.urlretrieve(ESRGAN_URL, esrgan + ".part")
+        os.replace(esrgan + ".part", esrgan)
 
     step("SD-Turbo pentru OpenVINO (models/sd-turbo-ov)")
     target = os.path.join(MODELS, "sd-turbo-ov")
