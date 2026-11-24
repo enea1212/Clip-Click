@@ -69,6 +69,18 @@ function validateStory(raw) {
       voice: character.voice ?? voices[index % voices.length],
     };
   });
+  // Two characters with the same hair and shirt look like one person on screen (seen on
+  // 2026-11-24: ENGINEER and MAN): the later one gets another shirt color (and hair if needed).
+  const seenLooks = new Set();
+  for (const [index, character] of characters.entries()) {
+    const key = () => `${character.look.hair}/${character.look.shirt}`;
+    if (seenLooks.has(key())) {
+      const shirt = SHIRTS.find((color) => !characters.some((other) => other.look.shirt === color));
+      character.look.shirt = shirt || SHIRTS[(index + 1) % SHIRTS.length];
+      if (seenLooks.has(key())) character.look.hair = HAIR.find((hair) => !seenLooks.has(`${hair}/${character.look.shirt}`)) || character.look.hair;
+    }
+    seenLooks.add(key());
+  }
   const names = new Set(characters.map((character) => character.name));
   if (names.size !== characters.length) fail("Două personaje au același nume.");
   const knownCharacter = (name) => { if (!names.has(name)) fail(`Scena folosește personajul „${name}”, care nu e în lista de personaje.`); return name; };

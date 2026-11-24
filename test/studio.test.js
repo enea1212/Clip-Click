@@ -255,3 +255,15 @@ test("decors use SDXL-Turbo (OpenVINO) with the VAE in full precision", async ()
     assert.match(S.DECOR_STYLE, /Pixar style/);
   } finally { env.restore(); }
 });
+
+test("validateStory makes characters with the same hair and shirt look different", () => {
+  const story = S.validateStory(minimal({ characters: [
+    { name: "ENGINEER", look: { hair: "short", shirt: "#3b82f6" } },
+    { name: "MAN", look: { hair: "short", shirt: "#3b82f6" } },
+    { name: "KID", look: { hair: "long", shirt: "#ef4444" } },
+  ] }));
+  const looks = story.characters.map((c) => `${c.look.hair}/${c.look.shirt}`);
+  assert.equal(new Set(looks).size, 3, looks.join(" "));
+  assert.deepEqual(story.characters[0].look, { skin: story.characters[0].look.skin, hair: "short", shirt: "#3b82f6" }, "the first keeps its look");
+  assert.equal(story.characters[2].look.hair, "long", "a distinct one is untouched");
+});

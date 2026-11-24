@@ -53,7 +53,7 @@ test("parseStoryboard drops unknown expressions/cameras to defaults and adds the
   assert.ok(S.CAMERAS.includes(story.scenes[0].camera) && story.scenes[0].camera !== "static", story.scenes[0].camera);
   assert.deepEqual(story.scenes[0].characters, [{ name: "MAYOR", expression: "neutral", position: "center" }]);
   assert.equal(story.scenes[1].decor, "office", "unknown decor → previous scene's decor");
-  assert.deepEqual(story.scenes[1].characters, [], "unknown character dropped");
+  assert.ok(!story.scenes[1].characters.some((c) => c.name === "GHOST"), "unknown character dropped");
 });
 
 test("parseStoryboard returns null for garbage", () => {
@@ -85,4 +85,26 @@ test("parseStoryboard turns static cameras into a varied rotation (no two equal 
   assert.ok(!cams.includes("static"), cams.join(","));
   for (let i = 1; i < cams.length; i += 1) assert.notEqual(cams[i], cams[i - 1], cams.join(","));
   assert.equal(cams[2], "pan-left", "a chosen move is kept");
+});
+
+test("cleanDecorPrompt removes people from decor descriptions", () => {
+  assert.equal(B.cleanDecorPrompt("a night scene with the station lights on, a small team working"), "a night scene with the station lights on");
+  assert.equal(B.cleanDecorPrompt("a morning scene with people walking and a man stepping on the stairs"), "a morning scene");
+  assert.equal(B.cleanDecorPrompt("an empty subway station with an escalator and stairs"), "an empty subway station with an escalator and stairs");
+  assert.equal(B.cleanDecorPrompt("a crowd"), "a crowd", "never empty: kept when nothing else is left");
+});
+
+test("parseStoryboard puts a character in most scenes when the AI left them empty", () => {
+  const split = B.splitScript("One. Two. Three. Four. Five. Six.");
+  const raw = JSON.stringify({ decors: [{ id: "a", prompt: "a place" }], characters: [{ name: "TOM", hair: "short", shirt: "#ff0000" }],
+    scenes: [0, 1, 2, 3, 4, 5].map((i) => ({ from: i, to: i, decor: "a", camera: "zoom-in", characters: i === 2 ? [{ name: "TOM", expression: "happy", position: "left" }] : [] })) });
+  const scenes = B.parseStoryboard(raw, split, "en").scenes;
+  const withPeople = scenes.filter((s) => s.characters.length).length;
+  assert.ok(withPeople >= 4, `${withPeople}/6`);
+  assert.deepEqual(scenes[2].characters, [{ name: "TOM", expression: "happy", position: "left" }], "the AI's choice is kept");
+});
+
+test("buildStoryboardPrompt asks for one decor every 2-3 scenes", () => {
+  const prompt = B.buildStoryboardPrompt(B.splitScript(Array.from({ length: 18 }, (_, i) => `Sentence ${i}.`).join(" ")).sentences, "en");
+  assert.match(prompt, /at least 6 decors/);
 });
