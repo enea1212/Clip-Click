@@ -173,15 +173,35 @@ const ROLES = [
   ["girl|fat(a|ă)", "GIRL"], ["grand(ma|mother)|bunic(a|uța)", "GRANDMA"], ["grand(pa|father)|bunic(ul)?", "GRANDPA"],
   ["mother|mom|mam(a|ă)", "MOM"], ["father|dad|tat(a|ăl)", "DAD"], ["woman|femei(a|e)", "WOMAN"], ["man|bărbat(ul)?", "MAN"],
 ].map(([list, name]) => [wordRe(list), name]);
-const FEMALE = wordRe("she|her|ea|ei|girl|woman|mother|mom|grandma|grandmother|proprietăreasa|profesoara|șefa|bucătăreasa|doctorița|polițista|eleva|studenta|fata|femeia|mama|bunica");
-function defaultCharacter(split) {
-  const text = split.sentences.map((s) => s.text).join(" ");
+// A story about a woman ("she", "the girl"…) and never about a man: its lead gets long hair, so
+// the drawing matches the text (2026-11-27: the AI gave OWNER, a "she", short hair).
+const FEMALE = wordRe("she|her|hers|herself|ea|girl|woman|mother|mom|grandma|grandmother|proprietăreasa|profesoara|șefa|bucătăreasa|doctorița|polițista|eleva|studenta|fata|femeia|mama|bunica");
+const MALE = wordRe("he|him|his|himself|el|lui|boy|man|father|dad|grandpa|grandfather|băiatul|bărbatul|tatăl|bunicul");
+const FEMALE_ROLES = new Set(["GIRL", "WOMAN", "MOM", "GRANDMA"]);
+const storyText = (split) => split.sentences.map((s) => s.text).join(" ");
+const femaleLead = (text) => FEMALE.test(text) && !MALE.test(text);
+
+function firstRole(text) {
   let best = null;
   for (const [pattern, name] of ROLES) {
     const at = text.search(pattern);
     if (at >= 0 && (!best || at < best.at)) best = { at, name };
   }
-  return { name: best ? best.name : "HERO", look: FEMALE.test(text) ? { hair: "long" } : {} };
+  return best && best.name;
+}
+
+function defaultCharacter(split) {
+  return { name: firstRole(storyText(split)) || "HERO", look: {} };
+}
+
+// Long hair for women: a female role (GIRL, MOM…) always, and the story's lead (the first role in
+// the text, or the only character) when the text speaks only of a "she".
+function fitHair(characters, split) {
+  const text = storyText(split);
+  const lead = characters.find((c) => c.name === firstRole(text)) || (characters.length === 1 ? characters[0] : null);
+  for (const c of characters) {
+    if (FEMALE_ROLES.has(c.name) || (c === lead && femaleLead(text))) c.look = { ...(c.look || {}), hair: "long" };
+  }
 }
 
 // The reference style has a character in almost every scene; the 7b model leaves most empty.
@@ -313,6 +333,7 @@ function parseStoryboard(raw, split, language) {
     else if (/^[A-Z][A-Z0-9_]{1,19}$/.test(name) && characters.length < split.characters.length + 2) characters.push({ name, look });
   }
   if (!characters.length) characters.push(defaultCharacter(split));
+  fitHair(characters, split);
   const names = new Set(characters.map((c) => c.name));
 
   const { sentences } = split;
@@ -346,6 +367,7 @@ function parseStoryboard(raw, split, language) {
 
 function rulesStoryboard(split, language) {
   const characters = split.characters.length ? split.characters.map((name) => ({ name })) : [defaultCharacter(split)];
+  fitHair(characters, split);
   const names = new Set(characters.map((c) => c.name));
   const scenes = split.sentences.map((s, index) => sceneFrom([s], { decor: "scene", camera: index % 2 ? "zoom-out" : "zoom-in" }, names));
   fillCharacters(scenes, names);
