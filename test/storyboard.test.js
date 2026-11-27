@@ -108,6 +108,19 @@ test("parseStoryboard drops unusable decors; their scenes keep the previous deco
   assert.deepEqual(story.scenes.map((s) => s.decor), ["shop", "shop", "shop"]);
 });
 
+test("the lead of a story about a woman gets long hair, even when the AI invented her", () => {
+  const text = "Every morning, the owner sold only forty cups. Then she tried one trick. Her regulars loved it.";
+  const raw = JSON.stringify({ decors: [{ id: "shop", prompt: "a cozy coffee shop" }],
+    characters: [{ name: "OWNER", hair: "short", shirt: "#ff0000" }, { name: "CUSTOMER", hair: "cap", shirt: "#0000ff" }], scenes: [{ from: 0, to: 2, decor: "shop" }] });
+  const story = B.parseStoryboard(raw, B.splitScript(text), "en");
+  assert.equal(story.characters.find((c) => c.name === "OWNER").look.hair, "long");
+  assert.equal(story.characters.find((c) => c.name === "CUSTOMER").look.hair, "cap", "only the lead changes");
+  const mixed = B.parseStoryboard(raw, B.splitScript("The owner sold forty cups. She told her husband. He laughed."), "en");
+  assert.equal(mixed.characters.find((c) => c.name === "OWNER").look.hair, "short", "a he in the story: left as the AI chose");
+  const girl = JSON.stringify({ decors: [{ id: "a", prompt: "a park" }], characters: [{ name: "GIRL", hair: "short" }], scenes: [{ from: 0, to: 0, decor: "a" }] });
+  assert.equal(B.parseStoryboard(girl, B.splitScript("He played with the girl."), "en").characters[0].look.hair, "long", "a female role always");
+});
+
 test("a story with no characters at all gets a main character from the text", () => {
   const split = B.splitScript("A small coffee shop was about to close. Every morning, the owner sold only forty cups. Then she tried one trick.");
   const raw = JSON.stringify({ decors: [{ id: "shop", prompt: "a cozy coffee shop" }], characters: [], scenes: [{ from: 0, to: 2, decor: "shop" }] });
