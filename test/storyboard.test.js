@@ -91,7 +91,35 @@ test("cleanDecorPrompt removes people from decor descriptions", () => {
   assert.equal(B.cleanDecorPrompt("a night scene with the station lights on, a small team working"), "a night scene with the station lights on");
   assert.equal(B.cleanDecorPrompt("a morning scene with people walking and a man stepping on the stairs"), "a morning scene");
   assert.equal(B.cleanDecorPrompt("an empty subway station with an escalator and stairs"), "an empty subway station with an escalator and stairs");
-  assert.equal(B.cleanDecorPrompt("a crowd"), "a crowd", "never empty: kept when nothing else is left");
+  assert.equal(B.cleanDecorPrompt("a crowd"), "", "a decor that is only people is unusable");
+  // Seen 2026-11-27 ("The Coffee Shop Trick"): customers and busy rooms ended up full of people.
+  assert.equal(B.cleanDecorPrompt("the coffee shop in summer with more customers"), "the coffee shop in summer");
+  assert.equal(B.cleanDecorPrompt("a busy morning in the coffee shop"), "a quiet morning in the coffee shop");
+  assert.equal(B.cleanDecorPrompt("a customer holding a cup with a name on it"), "", "the subject is a person");
+  assert.equal(B.cleanDecorPrompt("post online"), "", "no place in it");
+});
+
+test("parseStoryboard drops unusable decors; their scenes keep the previous decor", () => {
+  const split = B.splitScript("One. Two. Three.");
+  const raw = JSON.stringify({ decors: [{ id: "shop", prompt: "a cozy coffee shop" }, { id: "online", prompt: "post online" }], characters: [],
+    scenes: [{ from: 0, to: 0, decor: "shop" }, { from: 1, to: 1, decor: "online" }, { from: 2, to: 2, decor: "shop" }] });
+  const story = B.parseStoryboard(raw, split, "en");
+  assert.deepEqual(story.decors.map((d) => d.id), ["shop"]);
+  assert.deepEqual(story.scenes.map((s) => s.decor), ["shop", "shop", "shop"]);
+});
+
+test("a story with no characters at all gets a main character from the text", () => {
+  const split = B.splitScript("A small coffee shop was about to close. Every morning, the owner sold only forty cups. Then she tried one trick.");
+  const raw = JSON.stringify({ decors: [{ id: "shop", prompt: "a cozy coffee shop" }], characters: [], scenes: [{ from: 0, to: 2, decor: "shop" }] });
+  const story = B.parseStoryboard(raw, split, "en");
+  assert.equal(story.characters.length, 1);
+  assert.equal(story.characters[0].name, "OWNER");
+  assert.equal(story.characters[0].look.hair, "long", "she → long hair");
+  assert.ok(story.scenes.every((s) => s.characters.some((c) => c.name === "OWNER")));
+  const ro = B.parseStoryboard(raw, B.splitScript("Șoferul a mers prea repede. El a primit o amendă. A plătit."), "ro");
+  assert.equal(ro.characters[0].name, "DRIVER", "Romanian roles get the same English labels");
+  assert.equal(B.parseStoryboard(raw, B.splitScript("It rained. Then it stopped. The end."), "en").characters[0].name, "HERO");
+  assert.equal(B.rulesStoryboard(split, "en").scenes.filter((s) => s.characters.length).length, split.sentences.length, "rules too");
 });
 
 test("parseStoryboard puts a character in most scenes when the AI left them empty", () => {

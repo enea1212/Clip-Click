@@ -144,15 +144,44 @@ const minDecors = (sentences) => Math.min(8, Math.max(3, Math.ceil(sentences / 3
 
 // Decors must not contain people (the characters are drawn on top); the 7b model still writes
 // "…, a small team working" or "with people walking". Clauses about people are dropped.
-const PEOPLE = /\b(people|persons?|man|men|woman|women|team|crowd|kids?|child|children|boys?|girls?|commuters?|workers?|drivers?|mayor|officers?|engineers?|someone|guys?|family|students?|passengers?|pedestrians?|tourists?)\b/i;
+// A decor whose subject is a person ("a customer holding a cup") or that names no place
+// ("post online") is unusable: "" is returned and its scenes keep the previous decor.
+const PEOPLE = /\b(people|persons?|man|men|woman|women|team|crowd|kids?|child|children|boys?|girls?|commuters?|workers?|drivers?|mayor|officers?|engineers?|someone|guys?|family|students?|passengers?|pedestrians?|tourists?|customers?|clients?|guests?|visitors?|shoppers?|audience|fans?|friends?|neighbou?rs?|regulars?|owners?|waiters?|waitress(es)?|baristas?)\b/i;
+const BUSY = /\b(busy|crowded|bustling|packed)\b/gi;
 function cleanDecorPrompt(prompt) {
-  const parts = String(prompt).split(/(,\s*|\s+with\s+|\s+and\s+|\s+where\s+|\s+while\s+)/i);
+  const parts = String(prompt).replace(BUSY, "quiet").split(/(,\s*|\s+with\s+|\s+and\s+|\s+where\s+|\s+while\s+)/i);
+  if (PEOPLE.test(parts[0])) return "";
   let out = "";
   for (let i = 0; i < parts.length; i += 2) {
     if (PEOPLE.test(parts[i])) continue;
     out += (out && i > 0 ? parts[i - 1] : "") + parts[i];
   }
-  return out.trim() || String(prompt).trim();
+  out = out.trim();
+  const placeLike = /^(a|an|the)\s/i.test(out) || out.split(/\s+/).length >= 3;
+  return placeLike ? out : "";
+}
+
+// The 7b model sometimes invents no character at all (2026-11-27: 0/12 scenes with someone on
+// screen). The story then gets one main character named after the first role in the text.
+// \b doesn't see Romanian letters (ș, ă…) as word characters: words are matched with \p{L}.
+const wordRe = (list) => new RegExp(`(?<!\\p{L})(${list})(?!\\p{L})`, "iu");
+const ROLES = [
+  ["owners?|proprietar(ul|easa)?", "OWNER"], ["drivers?|șofer(ul|ița)?", "DRIVER"], ["mayor|primar(ul)?", "MAYOR"],
+  ["teachers?|profesor(ul|oara)?", "TEACHER"], ["boss|șef(ul|a)?", "BOSS"], ["chef|bucătar(ul|easa)?", "CHEF"],
+  ["farmers?|fermier(ul)?", "FARMER"], ["doctor(ul|ița)?", "DOCTOR"], ["officers?|polițist(ul|a)?", "OFFICER"],
+  ["students?|elev(ul|a)?|student(ul|a)?", "STUDENT"], ["kids?|copil(ul)?", "KID"], ["boy|băiat(ul)?", "BOY"],
+  ["girl|fat(a|ă)", "GIRL"], ["grand(ma|mother)|bunic(a|uța)", "GRANDMA"], ["grand(pa|father)|bunic(ul)?", "GRANDPA"],
+  ["mother|mom|mam(a|ă)", "MOM"], ["father|dad|tat(a|ăl)", "DAD"], ["woman|femei(a|e)", "WOMAN"], ["man|bărbat(ul)?", "MAN"],
+].map(([list, name]) => [wordRe(list), name]);
+const FEMALE = wordRe("she|her|ea|ei|girl|woman|mother|mom|grandma|grandmother|proprietăreasa|profesoara|șefa|bucătăreasa|doctorița|polițista|eleva|studenta|fata|femeia|mama|bunica");
+function defaultCharacter(split) {
+  const text = split.sentences.map((s) => s.text).join(" ");
+  let best = null;
+  for (const [pattern, name] of ROLES) {
+    const at = text.search(pattern);
+    if (at >= 0 && (!best || at < best.at)) best = { at, name };
+  }
+  return { name: best ? best.name : "HERO", look: FEMALE.test(text) ? { hair: "long" } : {} };
 }
 
 // The reference style has a character in almost every scene; the 7b model leaves most empty.
@@ -283,6 +312,7 @@ function parseStoryboard(raw, split, language) {
     if (known) known.look = look;
     else if (/^[A-Z][A-Z0-9_]{1,19}$/.test(name) && characters.length < split.characters.length + 2) characters.push({ name, look });
   }
+  if (!characters.length) characters.push(defaultCharacter(split));
   const names = new Set(characters.map((c) => c.name));
 
   const { sentences } = split;
@@ -315,11 +345,13 @@ function parseStoryboard(raw, split, language) {
 }
 
 function rulesStoryboard(split, language) {
-  const names = new Set(split.characters);
+  const characters = split.characters.length ? split.characters.map((name) => ({ name })) : [defaultCharacter(split)];
+  const names = new Set(characters.map((c) => c.name));
   const scenes = split.sentences.map((s, index) => sceneFrom([s], { decor: "scene", camera: index % 2 ? "zoom-out" : "zoom-in" }, names));
+  fillCharacters(scenes, names);
   return {
     language,
-    characters: split.characters.map((name) => ({ name })),
+    characters,
     decors: [{ id: "scene", prompt: "a simple colorful background for a short story" }],
     scenes,
   };
